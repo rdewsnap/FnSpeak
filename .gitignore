@@ -18,3 +18,4 @@ __pycache__/
 apps/mac/.rust-libs/
 apps/mac/Sources/Flowstate/Generated/
 apps/mac/Sources/flowstate_ffiFFI/
+/bench/manifest.tts.jsonl
