@@ -12,7 +12,7 @@ mod metrics;
 use anyhow::{bail, Context as _, Result};
 use clap::Parser;
 use flowstate_core::cleanup::{AnthropicCleaner, Cleaner, LocalCleaner, LocalConfig, OpenAiCompatCleaner};
-use flowstate_core::stt::{FixedTranscript, SttEngine, SAMPLE_RATE};
+use flowstate_core::stt::{FixedTranscript, SttEngine, SttHints, SAMPLE_RATE};
 use flowstate_core::vocab::{projects::index_projects, Source, VocabIndex};
 use flowstate_core::{CleanupMode, DictationContext, Pipeline};
 use serde::Deserialize;
@@ -157,14 +157,17 @@ fn main() -> Result<()> {
             continue;
         }
 
-        // Transcribe once per engine; every cleanup mode reuses it.
+        // Transcribe once per engine; every cleanup mode reuses it. Like the
+        // app, the engine gets the vocabulary up front (Whisper uses it as its
+        // starting prompt).
+        let hints = SttHints { vocabulary: vocab_terms.iter().take(40).cloned().collect() };
         let mut raws: Vec<(String, u64)> = Vec::new();
         for clip in &usable {
             match (&mut engine, &clip.audio, &clip.transcript) {
                 (Some(stt), Some(audio), _) => {
                     let samples = load_wav(&base.join(audio))?;
                     let started = std::time::Instant::now();
-                    let raw = stt.transcribe(&samples, &Default::default())?;
+                    let raw = stt.transcribe(&samples, &hints)?;
                     raws.push((raw, started.elapsed().as_millis() as u64));
                 }
                 (None, _, Some(t)) => raws.push((t.clone(), 0)),
