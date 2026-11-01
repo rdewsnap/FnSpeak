@@ -362,7 +362,13 @@ fn score_match(heard: &str, heard_norm: &str, words: usize, term: &str, term_nor
     if heard_norm == term_norm {
         // Same letters. Only worth changing if the spelling actually differs
         // and the term carries capitalization or spacing the transcript lost.
-        if heard == term || !term.chars().any(char::is_uppercase) {
+        if heard == term {
+            return None;
+        }
+        // An all-lowercase term only differs by case ("home" vs "Home"), which
+        // isn't worth changing, unless the transcript split it into pieces
+        // ("PG vector" → "pgvector").
+        if !term.chars().any(char::is_uppercase) && words == 1 {
             return None;
         }
         return Some(if words > 1 || heard.chars().any(char::is_uppercase) { 0.97 } else { 0.93 });
@@ -455,6 +461,15 @@ mod tests {
         let text = "deploy dod safe transfer tonight";
         let s = v.suggest(text).unwrap();
         assert_eq!(apply_suggestions(text, &s, AUTO_APPLY_SCORE), "deploy DoDSafeTransfer tonight");
+    }
+
+    #[test]
+    fn joins_split_lowercase_terms() {
+        let mut v = index();
+        v.add_terms(Source::User, ["pgvector"]).unwrap();
+        let text = "review the PG vector migration";
+        let s = v.suggest(text).unwrap();
+        assert_eq!(apply_suggestions(text, &s, AUTO_APPLY_SCORE), "review the pgvector migration");
     }
 
     #[test]
