@@ -1,0 +1,10 @@
+# One term per line. Real runs should use your own: --projects ~/Projects
+Flowstate
+Priya Raman
+Siobhan
+Kubernetes
+Postgres
+pgvector
+DoDSafeTransfer
+Virescent
+Tauri

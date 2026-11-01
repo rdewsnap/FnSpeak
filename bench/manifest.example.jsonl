@@ -1,0 +1,15 @@
+// Transcript-only examples: they test cleanup without audio. Record your own clips for real numbers.
+{"id": "vocab-01", "category": "vocab", "transcript": "Push the flow state build to staging tonight.", "reference": "Push the Flowstate build to staging tonight.", "terms": ["Flowstate"]}
+{"id": "vocab-02", "category": "vocab", "transcript": "Can you ask pria ramen to review the PG vector migration", "reference": "Can you ask Priya Raman to review the pgvector migration?", "terms": ["Priya Raman", "pgvector"]}
+{"id": "vocab-03", "category": "vocab", "transcript": "The dod safe transfer upload is timing out again.", "reference": "The DoDSafeTransfer upload is timing out again.", "terms": ["DoDSafeTransfer"], "context": {"app_id": "com.tinyspeck.slackmacgap", "app_name": "Slack"}}
+{"id": "vocab-04", "category": "vocab", "transcript": "I moved the viressent landing page off of towery.", "reference": "I moved the Virescent landing page off of Tauri.", "terms": ["Virescent", "Tauri"]}
+{"id": "filler-01", "category": "filler", "transcript": "Um so I think uh we should probably just ship it on Friday.", "reference": "I think we should probably just ship it on Friday."}
+{"id": "filler-02", "category": "filler", "transcript": "Hmm, the the tests are, like, mostly passing, you know, except the auth ones.", "reference": "The tests are mostly passing, except the auth ones."}
+{"id": "filler-03", "category": "filler", "transcript": "Uh, can you, um, send me the deck before the meeting?", "reference": "Can you send me the deck before the meeting?"}
+{"id": "repair-01", "category": "repair", "transcript": "Send it to Sam on Friday. Actually, I actually want it to go to Priya instead.", "reference": "Send it to Priya on Friday.", "terms": []}
+{"id": "repair-02", "category": "repair", "transcript": "Let's meet at three, no wait, four in the big conference room.", "reference": "Let's meet at four in the big conference room."}
+{"id": "repair-03", "category": "repair", "transcript": "So the build is failing because, the build is failing because the cache key is wrong.", "reference": "The build is failing because the cache key is wrong."}
+{"id": "repair-04", "category": "repair", "transcript": "Grab milk, eggs, no, scratch that, not eggs, bread and coffee.", "reference": "Grab milk, bread and coffee."}
+{"id": "repair-05", "category": "repair", "transcript": "We should deploy on Postgres fifteen. Sorry, I mean Postgres sixteen.", "reference": "We should deploy on Postgres 16.", "terms": ["Postgres"]}
+{"id": "format-01", "category": "format", "transcript": "Three things for tomorrow. First the demo deck. Second follow up with legal. Third book the room.", "reference": "Three things for tomorrow: 1. The demo deck 2. Follow up with legal 3. Book the room"}
+{"id": "code-01", "category": "vocab", "transcript": "Rename the get user function to fetch user and update the kubernetes config", "reference": "Rename the getUser function to fetchUser and update the Kubernetes config.", "terms": ["Kubernetes"], "context": {"app_id": "com.microsoft.VSCode", "app_name": "Visual Studio Code"}}

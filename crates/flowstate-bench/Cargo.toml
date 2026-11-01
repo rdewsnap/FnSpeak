@@ -1,0 +1,23 @@
+[package]
+name = "flowstate-bench"
+description = "Scores dictation systems on your own vocabulary, filler removal and self-correction repair"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "flowstate-bench"
+path = "src/main.rs"
+
+[dependencies]
+flowstate-core.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clap = { version = "~4.5", features = ["derive"] }
+hound = "3.5.1"
+
+[features]
+default = []
+whisper = ["flowstate-core/whisper-metal"]
+parakeet = ["flowstate-core/parakeet"]

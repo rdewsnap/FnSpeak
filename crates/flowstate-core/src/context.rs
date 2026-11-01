@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Live context captured by the app shell right before dictation starts.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DictationContext {
     /// macOS bundle id (`com.tinyspeck.slackmacgap`) or Windows exe name (`slack.exe`).
     pub app_id: String,
