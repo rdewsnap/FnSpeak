@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Flowstate</string>
+    <key>CFBundleDisplayName</key>
+    <string>Flowstate</string>
+    <key>CFBundleIdentifier</key>
+    <string>dev.flowstate.Flowstate</string>
+    <key>CFBundleExecutable</key>
+    <string>Flowstate</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Flowstate listens while you hold the Fn key and turns your speech into text. Audio is processed on your Mac and never stored.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>Flowstate learns the names of your contacts so it spells them correctly when you dictate. Names stay on your Mac.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Flowstate learns meeting titles and attendee names from your calendar so it spells them correctly. They stay on your Mac.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>Flowstate learns meeting titles and attendee names from your calendar so it spells them correctly. They stay on your Mac.</string>
+</dict>
+</plist>
