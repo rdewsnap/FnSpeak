@@ -6,7 +6,7 @@
 #
 # Sizes: Whisper large-v3-turbo q5 ~550 MB, Parakeet TDT 0.6B int8 ~650 MB,
 # Qwen3 4B Instruct Q4_K_M ~2.5 GB. Local cleanup also needs llama-server:
-#   brew install llama.cpp
+#   scripts/build-llama-server.sh
 set -euo pipefail
 
 DEST="$HOME/Library/Application Support/Flowstate/Models"
@@ -47,7 +47,7 @@ fi
 
 if [[ "$WHAT" == all || "$WHAT" == cleanup ]]; then
     fetch "$CLEANUP_URL" "$DEST/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
-    command -v llama-server >/dev/null || echo "note: local cleanup needs llama-server — brew install llama.cpp"
+    [[ -x "$(dirname "$0")/../build/llama-server" ]] || echo "note: local cleanup needs llama-server — run scripts/build-llama-server.sh"
 fi
 
 echo "models are in $DEST"

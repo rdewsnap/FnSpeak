@@ -18,16 +18,16 @@ Early days. The pipeline, the Mac app, the benchmark and the training scripts ar
 
 ## Install
 
-There's no signed release yet, so you build it. Apple Silicon, Rust (rustup) and Xcode 16:
+There's no signed release yet, so you build it. Apple Silicon, Rust (rustup), Xcode 16 and CMake:
 
 ```bash
-brew install llama.cpp          # llama-server, for local cleanup
 scripts/fetch-models.sh         # Whisper, Parakeet and a 4B cleanup model, about 3.7 GB
-scripts/build-mac.sh
+scripts/build-llama-server.sh   # llama-server for local cleanup
+LLAMA_SERVER=build/llama-server scripts/build-mac.sh
 open build/Flowstate.app
 ```
 
-First launch asks for microphone and Accessibility access and picks a cleanup mode based on your hardware.
+Homebrew's llama.cpp currently fails to compile its Metal shaders on macOS 15, which is why the second script builds a pinned version. First launch asks for microphone and Accessibility access and picks a cleanup mode based on your hardware.
 
 If Fn opens the emoji picker, set System Settings → Keyboard → "Press 🌐 key to" → Do Nothing.
 
