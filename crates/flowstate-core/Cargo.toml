@@ -13,7 +13,16 @@ regex.workspace = true
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 rphonetic = "4.0.0"
 strsim = "0.11.1"
-walkdir = "2.5.0"
+whisper-rs = { version = "0.16.0", optional = true }
+sherpa-rs = { version = "0.6.8", optional = true, default-features = false, features = ["download-binaries"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+[features]
+default = []
+whisper = ["dep:whisper-rs"]
+whisper-metal = ["whisper", "whisper-rs/metal"]
+whisper-cuda = ["whisper", "whisper-rs/cuda"]
+parakeet = ["dep:sherpa-rs"]
+parakeet-cuda = ["parakeet", "sherpa-rs/cuda"]
