@@ -1,0 +1,14 @@
+/target
+**/*.rs.bk
+.DS_Store
+*.xcuserstate
+xcuserdata/
+DerivedData/
+.build/
+/models/
+/bench/clips/*.wav
+/training/data/
+/training/out/
+.venv/
+__pycache__/
+.env
