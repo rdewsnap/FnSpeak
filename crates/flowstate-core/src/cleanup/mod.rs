@@ -6,14 +6,12 @@
 //! trusted. Anything that fails falls back to the rule-based filter output.
 
 mod cloud;
-#[cfg(feature = "llama")]
 mod local;
 mod prompt;
 mod route;
 
 pub use cloud::{AnthropicCleaner, OpenAiCompatCleaner};
-#[cfg(feature = "llama")]
-pub use local::{LlamaCleaner, LlamaConfig};
+pub use local::{LlamaServer, LocalCleaner, LocalConfig};
 pub use prompt::{build_user_message, SYSTEM_PROMPT};
 pub use route::{needs_repair, RoutedCleaner};
 

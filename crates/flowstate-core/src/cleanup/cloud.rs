@@ -123,6 +123,11 @@ impl OpenAiCompatCleaner {
             http: client(DEFAULT_TIMEOUT)?,
         })
     }
+
+    pub fn with_timeout(mut self, timeout: Duration) -> Result<Self, CleanupError> {
+        self.http = client(timeout)?;
+        Ok(self)
+    }
 }
 
 impl Cleaner for OpenAiCompatCleaner {
