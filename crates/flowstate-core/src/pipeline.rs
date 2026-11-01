@@ -4,7 +4,7 @@
 //! Every step after speech-to-text has a safe fallback, so a slow or failing
 //! cleanup model never loses a dictation: the user gets the filtered text.
 
-use crate::cleanup::{guardrail, Cleaner, CleanupMode, CleanupRequest};
+use crate::cleanup::{guardrail, trim_expanded_terms, Cleaner, CleanupMode, CleanupRequest};
 use crate::context::DictationContext;
 use crate::filter::filter;
 use crate::history::History;
@@ -141,7 +141,7 @@ impl Pipeline {
                 let cleaned = cleaner.clean(&req).and_then(|out| guardrail(&filtered, &out, &vocabulary).map(|_| out));
                 match cleaned {
                     Ok(text) => {
-                        result.text = text;
+                        result.text = trim_expanded_terms(&filtered, &text, &vocabulary);
                         result.cleaner = Some(cleaner.name());
                     }
                     Err(e) => result.fallback_reason = Some(e.to_string()),

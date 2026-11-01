@@ -113,6 +113,27 @@ pub fn guardrail(input: &str, output: &str, vocabulary: &[String]) -> Result<(),
     Ok(())
 }
 
+/// Undo a model padding out a name from the vocabulary: the speaker said
+/// "Priya", the model wrote "Priya Raman". Any multi-word term in the output
+/// is trimmed back to the words the speaker actually said.
+pub fn trim_expanded_terms(input: &str, output: &str, vocabulary: &[String]) -> String {
+    let said: HashSet<String> = words(input).into_iter().collect();
+    let mut out = output.to_string();
+    for term in vocabulary {
+        let parts: Vec<&str> = term.split_whitespace().collect();
+        if parts.len() < 2 || !out.contains(term.as_str()) {
+            continue;
+        }
+        // A respelling counts as said ("Rahman" → "Raman"); a new word doesn't.
+        let was_said = |w: &String| said.contains(w) || said.iter().any(|s| strsim::jaro_winkler(s, w) >= 0.85);
+        let kept: Vec<&str> = parts.iter().copied().filter(|p| words(p).iter().all(was_said)).collect();
+        if !kept.is_empty() && kept.len() < parts.len() {
+            out = out.replace(term.as_str(), &kept.join(" "));
+        }
+    }
+    out
+}
+
 fn words(text: &str) -> Vec<String> {
     text.split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
@@ -163,6 +184,15 @@ mod tests {
     fn guardrail_rejects_empty_for_long_input() {
         assert!(guardrail("this is a real sentence with words", "", &[]).is_err());
         assert!(guardrail("um okay", "", &[]).is_ok());
+    }
+
+    #[test]
+    fn trims_names_the_speaker_did_not_say() {
+        let vocab = vec!["Priya Raman".to_string(), "Mango Tuesday".to_string()];
+        assert_eq!(trim_expanded_terms("send it to priya", "Send it to Priya Raman.", &vocab), "Send it to Priya.");
+        assert_eq!(trim_expanded_terms("ask priya raman", "Ask Priya Raman.", &vocab), "Ask Priya Raman.");
+        assert_eq!(trim_expanded_terms("ask Priya Rahman", "Ask Priya Raman.", &vocab), "Ask Priya Raman.");
+        assert_eq!(trim_expanded_terms("the mango tuesday repo", "The Mango Tuesday repo.", &vocab), "The Mango Tuesday repo.");
     }
 
     #[test]
