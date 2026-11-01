@@ -10,3 +10,10 @@ thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 regex.workspace = true
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+rphonetic = "4.0.0"
+strsim = "0.11.1"
+walkdir = "2.5.0"
+
+[dev-dependencies]
+tempfile = "3.27.0"
