@@ -14,8 +14,6 @@ It knows your words. It picks names up from your projects folder, contacts and c
 
 If the cleanup model is slow, missing or makes something up, you get the rule-cleaned text instead. You never lose a dictation.
 
-Early days. The pipeline, the Mac app, the benchmark and the training scripts are in place; proper numbers against other tools come next.
-
 ## Install
 
 There's no signed release yet, so you build it. Apple Silicon, Rust (rustup), Xcode 16 and CMake:
@@ -55,13 +53,6 @@ Record clips as 16 kHz mono WAV, e.g. `ffmpeg -f avfoundation -i ":0" -ar 16000 
 
 I've also started on fine-tuning a smaller model so slower Macs can do cleanup locally. `training/` has the scripts; your own recordings are never used for it.
 
-## What's next
-
-- Windows app on the same core
-- Learning from the words you retype after a dictation
-- A small fine-tuned cleanup model with open weights
-- A hosted option for people who'd rather not run a model or manage keys
-
 ## Layout
 
 ```
@@ -72,6 +63,8 @@ apps/mac                  the menu bar app (Swift)
 prompts/                  the cleanup prompt, shared with training
 training/                 data prep and fine-tuning
 ```
+
+Contributions welcome; see CONTRIBUTING.md for how branches work here.
 
 ## License
 
