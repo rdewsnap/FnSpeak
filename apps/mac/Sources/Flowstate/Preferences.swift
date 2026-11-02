@@ -38,6 +38,12 @@ final class Preferences: ObservableObject {
     /// Bundle id → `ax` or `type`, for apps where pasting doesn't work.
     @Published var insertionOverrides: [String: String] { didSet { defaults.set(insertionOverrides, forKey: "insertionOverrides") } }
 
+    // MARK: General
+
+    @Published var showInMenuBar: Bool { didSet { defaults.set(showInMenuBar, forKey: "showInMenuBar") } }
+    @Published var showInDock: Bool { didSet { defaults.set(showInDock, forKey: "showInDock") } }
+    @Published var soundsEnabled: Bool { didSet { defaults.set(soundsEnabled, forKey: "soundsEnabled") } }
+
     // MARK: Dictation
 
     /// A `HotkeyPreset` raw value.
@@ -63,6 +69,9 @@ final class Preferences: ObservableObject {
         historyDays = defaults.object(forKey: "historyDays") as? Int ?? 30
         learnFromCorrections = defaults.object(forKey: "learnFromCorrections") as? Bool ?? true
         insertionOverrides = defaults.dictionary(forKey: "insertionOverrides") as? [String: String] ?? [:]
+        showInMenuBar = defaults.object(forKey: "showInMenuBar") as? Bool ?? true
+        showInDock = defaults.object(forKey: "showInDock") as? Bool ?? false
+        soundsEnabled = defaults.object(forKey: "soundsEnabled") as? Bool ?? false
         hotkeyPreset = defaults.string(forKey: "hotkeyPreset") ?? HotkeyPreset.fn.rawValue
         customHotkeyKeyCode = defaults.object(forKey: "customHotkeyKeyCode") as? Int ?? 49
         customHotkeyModifiers = defaults.object(forKey: "customHotkeyModifiers") as? Int

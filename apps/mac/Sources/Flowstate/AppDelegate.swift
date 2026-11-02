@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -13,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var settingsController: SettingsWindowController?
     private var onboardingWindow: NSWindow?
+    private var prefsObserver: AnyCancellable?
 
     /// Captured when recording starts, so the text goes where the user was.
     private var pendingContext: Context?
@@ -21,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainMenu.install(target: self, settings: #selector(openSettings), about: #selector(openAbout))
         setUpStatusItem()
+        applyPresentation()
+        prefsObserver = prefs.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] in self?.applyPresentation() }
         recorder.onLevel = { [weak self] in self?.overlay.setLevel($0) }
         hotkeys.onStart = { [weak self] in self?.startRecording() ?? false }
         hotkeys.onFinish = { [weak self] in self?.finishRecording() }
@@ -55,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pendingContext = ContextReader.current()
         do {
             try recorder.start()
+            Sounds.start()
             overlay.show(.listening(handsFree: prefs.triggerStyle == "toggle"))
             return true
         } catch {
@@ -65,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func finishRecording() {
         let audio = recorder.stop()
+        Sounds.stop()
         guard let context = pendingContext else { return overlay.show(.hidden) }
         pendingContext = nil
         // Under ~0.3 s there's nothing to transcribe.
@@ -113,6 +119,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - UI
+
+    /// Menu bar icon and Dock presence follow the prefs; at least one stays on.
+    private func applyPresentation() {
+        statusItem.isVisible = prefs.showInMenuBar || !prefs.showInDock
+        let policy: NSApplication.ActivationPolicy = prefs.showInDock ? .regular : .accessory
+        if NSApp.activationPolicy() != policy { NSApp.setActivationPolicy(policy) }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { showSettings() }
+        return true
+    }
 
     private func setUpStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
