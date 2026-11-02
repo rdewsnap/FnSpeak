@@ -85,6 +85,10 @@ struct NoteEditorView: View {
                 Label("Copy as Markdown", systemImage: "doc.on.doc")
             }
             .help("Copy as Markdown")
+            if NoteExporter.folder != nil {
+                Button { revealInFinder() } label: { Label("Reveal in Finder", systemImage: "folder") }
+                    .help("Show the exported Markdown file in Finder")
+            }
             Button(role: .destructive) { model.delete(note) } label: { Label("Delete", systemImage: "trash") }
                 .help("Delete note")
         }
@@ -157,6 +161,14 @@ struct NoteEditorView: View {
         if bodyText != note.bodyMd { bodyText = note.bodyMd }
         let stored = Self.tagsString(note.tags)
         if Set(tags) != Set(note.tags) { tagsText = stored }
+    }
+
+    private func revealInFinder() {
+        saveNow()
+        store.export(currentNote) { url in
+            guard let url else { return }
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
     }
 
     private func toggleTask(line: Int) {

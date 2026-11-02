@@ -2,7 +2,8 @@ import Foundation
 
 /// The app's side of notes: calls into the Rust notes store on its own queue
 /// (auto-titling can run the cleanup model for a few seconds, and dictation
-/// shouldn't wait behind it), and bumps `revision` so open views reload.
+/// shouldn't wait behind it), mirrors notes to the export folder, and bumps
+/// `revision` so open views reload.
 final class NotesStore: ObservableObject {
     static let shared = NotesStore()
 
@@ -47,7 +48,10 @@ final class NotesStore: ObservableObject {
     func delete(_ note: Note, completion: ((Bool) -> Void)? = nil) {
         run({ try $0.deleteNote(id: note.id) }) { [weak self] result in
             let deleted = (try? result.get()) ?? false
-            if deleted { self?.revision += 1 }
+            if deleted {
+                NoteExporter.remove(id: note.id)
+                self?.revision += 1
+            }
             completion?(deleted)
         }
     }
@@ -80,10 +84,37 @@ final class NotesStore: ObservableObject {
         run({ try $0.exportMeetingMarkdown(id: id) }) { completion(try? $0.get()) }
     }
 
+    /// Write every note to the export folder. Completes with how many were written.
+    func exportAll(completion: @escaping (Result<Int, Error>) -> Void) {
+        guard let folder = NoteExporter.folder else { return completion(.success(0)) }
+        run({ core -> Int in
+            let all = try core.notes(limit: UInt32.max)
+            for note in all { try NoteExporter.write(note, to: folder) }
+            return all.count
+        }, completion: completion)
+    }
+
+    /// Write one note's file now, e.g. before revealing it in Finder.
+    func export(_ note: Note, completion: @escaping (URL?) -> Void) {
+        guard let folder = NoteExporter.folder else { return completion(nil) }
+        run({ _ -> URL in
+            try NoteExporter.write(note, to: folder)
+            return folder.appendingPathComponent(NoteExporter.fileName(for: note))
+        }, completion: { completion(try? $0.get()) })
+    }
+
     // MARK: - Private
 
     private func didChange(_ note: Note) {
         revision += 1
+        guard let folder = NoteExporter.folder else { return }
+        queue.async {
+            do {
+                try NoteExporter.write(note, to: folder)
+            } catch {
+                Log.error("Couldn't export note \(note.id): \(error.localizedDescription)")
+            }
+        }
     }
 
     /// Run `work` on the notes queue; `completion` comes back on the main queue.
