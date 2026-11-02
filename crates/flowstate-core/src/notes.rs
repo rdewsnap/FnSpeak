@@ -419,6 +419,57 @@ impl NotesStore {
         self.conn.query_row(&format!("SELECT {MEETING_COLUMNS} FROM meetings WHERE id = ?1"), [id], row_to_meeting).optional()
     }
 
+    /// The whole meeting as one Markdown document: title, date and
+    /// participants, the summary with its action items, then the transcript.
+    pub fn export_meeting_markdown(&self, id: i64) -> Result<String> {
+        let (m, segments) = self.meeting(id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let mut out = String::new();
+        let title = if m.title.trim().is_empty() { "Meeting" } else { m.title.trim() };
+        out.push_str(&format!("# {title}\n\n"));
+
+        let mut when = local_time(m.started_at).map(|t| t.format("%A %-d %B %Y, %H:%M").to_string()).unwrap_or_default();
+        if let Some(end) = m.ended_at.and_then(local_time) {
+            when.push_str(&format!("–{}", end.format("%H:%M")));
+        }
+        // Trailing double spaces keep these as separate lines in Markdown.
+        out.push_str(&format!("**Date:** {when}  \n"));
+        if !m.participants.is_empty() {
+            out.push_str(&format!("**Participants:** {}  \n", m.participants.join(", ")));
+        }
+        out.push('\n');
+
+        let summary = m.summary_md.as_deref().unwrap_or("").trim();
+        if !summary.is_empty() {
+            out.push_str(summary);
+            out.push_str("\n\n");
+        }
+        // Summaries carry their own action items section; only add one if
+        // it's missing.
+        let has_section = summary.lines().any(|l| l.starts_with('#') && l.trim_start_matches('#').trim().to_lowercase().starts_with("action item"));
+        if !has_section && !m.action_items.is_empty() {
+            out.push_str("## Action items\n");
+            for item in &m.action_items {
+                out.push_str(&format!("- [{}] ", if item.done { "x" } else { " " }));
+                if let Some(owner) = &item.owner {
+                    out.push_str(&format!("{owner}: "));
+                }
+                out.push_str(&item.task);
+                if let Some(due) = &item.due {
+                    out.push_str(&format!(" ({due})"));
+                }
+                out.push('\n');
+            }
+            out.push('\n');
+        }
+
+        out.push_str("## Transcript\n\n");
+        for line in transcript_markdown(&segments).lines() {
+            out.push_str(line);
+            out.push_str("  \n");
+        }
+        Ok(out)
+    }
+
     // Search
 
     /// Search notes, meeting titles and summaries, and transcripts. Every
@@ -582,6 +633,10 @@ fn row_to_segment(r: &Row<'_>) -> Result<Segment> {
     })
 }
 
+fn local_time(unix: i64) -> Option<chrono::DateTime<chrono::Local>> {
+    chrono::DateTime::from_timestamp(unix, 0).map(|t| t.with_timezone(&chrono::Local))
+}
+
 fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
@@ -698,6 +753,31 @@ mod tests {
         assert_eq!(m2.status, MeetingStatus::Processing);
         assert_eq!(m2.ended_at, Some(m.started_at + 760));
         assert!(store.recover_interrupted().unwrap().is_empty());
+    }
+
+    #[test]
+    fn exports_markdown() {
+        let store = NotesStore::in_memory().unwrap();
+        let m = meeting_with_segments(&store);
+        store.finish_meeting(m.id).unwrap();
+        let items = vec![
+            ActionItem { owner: Some("Priya".into()), task: "Draft the release notes".into(), due: Some("Thursday".into()), done: false },
+            ActionItem { owner: None, task: "Book the room".into(), due: None, done: true },
+        ];
+        store.set_summary(m.id, "## Summary\n- The launch is Friday.", &items).unwrap();
+
+        let md = store.export_meeting_markdown(m.id).unwrap();
+        assert!(md.starts_with("# Kinju launch sync\n\n**Date:** "));
+        assert!(md.contains("**Participants:** Priya, Sam  \n"));
+        assert!(md.contains(
+            "## Summary\n- The launch is Friday.\n\n## Action items\n- [ ] Priya: Draft the release notes (Thursday)\n- [x] Book the room\n"
+        ));
+        assert!(md.ends_with("## Transcript\n\n[00:00:00] Me: So the launch is Friday  \n[00:12:34] Others: I'll draft the release notes  \n"));
+
+        // A summary that already lists its action items doesn't get a second list.
+        store.set_summary(m.id, "## Summary\n- Ship.\n\n## Action items\n- [ ] Priya: Draft the release notes (Thursday)", &items).unwrap();
+        assert_eq!(store.export_meeting_markdown(m.id).unwrap().matches("## Action items").count(), 1);
+        assert!(store.export_meeting_markdown(m.id + 1).is_err());
     }
 
     #[test]
