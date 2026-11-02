@@ -53,11 +53,22 @@ Record clips as 16 kHz mono WAV, e.g. `ffmpeg -f avfoundation -i ":0" -ar 16000 
 
 I've also started on fine-tuning a smaller model so slower Macs can do cleanup locally. `training/` has the scripts; your own recordings are never used for it.
 
+## Connecting an AI assistant
+
+There's a small MCP server in the app bundle so Claude, Cursor or whatever you use can search your dictation history, and later your notes. Nothing leaves the machine.
+
+```json
+{"mcpServers":{"flowstate":{"command":"/Applications/Flowstate.app/Contents/MacOS/flowstate-mcp"}}}
+```
+
+Or for Claude Code: `claude mcp add flowstate -- /Applications/Flowstate.app/Contents/MacOS/flowstate-mcp`. It's read-only and local; add `--allow-write` if you want the assistant to be able to save notes.
+
 ## Layout
 
 ```
 crates/flowstate-core     the pipeline: STT, filter, vocabulary, cleanup
 crates/flowstate-ffi      UniFFI bindings for the Mac app
+crates/flowstate-mcp      the local MCP server
 crates/flowstate-bench    benchmark CLI
 apps/mac                  the menu bar app (Swift)
 prompts/                  the cleanup prompt, shared with training
