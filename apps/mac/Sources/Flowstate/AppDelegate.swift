@@ -53,7 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Whatever the user did to the last dictation, they're done with it.
         editWatcher.finish()
         guard AudioRecorder.hasPermission else {
-            overlay.show(.message("Flowstate needs microphone access"))
+            overlay.show(.error("Microphone access is off"))
             return false
         }
         pendingContext = ContextReader.current()
@@ -63,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             overlay.show(.listening(handsFree: prefs.triggerStyle == "toggle"))
             return true
         } catch {
-            overlay.show(.message("Couldn't start the microphone"))
+            overlay.show(.error("Couldn't start the microphone"))
             return false
         }
     }
@@ -76,7 +76,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Under ~0.3 s there's nothing to transcribe.
         guard audio.count > 4_800 else { return overlay.show(.hidden) }
         guard engine.isReady else {
-            return overlay.show(.message(engine.status == .loading ? "Still loading the speech model" : "Speech model unavailable — see Settings"))
+            if case .failed(let message) = engine.status { return overlay.show(.error(Overlay.reason(message))) }
+            return overlay.show(.message("Still loading the speech model"))
         }
 
         overlay.show(.working)
@@ -84,13 +85,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             switch result {
             case .success(let dictation):
-                self.overlay.show(.hidden)
-                guard !dictation.insert.isEmpty else { return }
+                guard !dictation.insert.isEmpty else { return self.overlay.show(.hidden) }
                 TextInserter.insert(dictation.insert, bundleId: context.appId)
                 self.lastInsert = (dictation.insert, context.appId)
                 if self.prefs.learnFromCorrections { self.editWatcher.watch(dictation.insert) }
+                self.overlay.show(.pasted)
             case .failure(let error):
-                self.overlay.show(.message("Dictation failed: \(error.localizedDescription)"))
+                self.overlay.show(.error(Overlay.reason(for: error)))
             }
         }
     }

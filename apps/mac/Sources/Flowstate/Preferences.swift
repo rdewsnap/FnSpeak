@@ -43,6 +43,10 @@ final class Preferences: ObservableObject {
     @Published var showInMenuBar: Bool { didSet { defaults.set(showInMenuBar, forKey: "showInMenuBar") } }
     @Published var showInDock: Bool { didSet { defaults.set(showInDock, forKey: "showInDock") } }
     @Published var soundsEnabled: Bool { didSet { defaults.set(soundsEnabled, forKey: "soundsEnabled") } }
+    /// `bottom`, `top`, `cursor` or `hidden`.
+    @Published var overlayPosition: String { didSet { defaults.set(overlayPosition, forKey: "overlayPosition") } }
+    /// `small`, `medium` or `large`.
+    @Published var overlaySize: String { didSet { defaults.set(overlaySize, forKey: "overlaySize") } }
 
     // MARK: Dictation
 
@@ -72,6 +76,8 @@ final class Preferences: ObservableObject {
         showInMenuBar = defaults.object(forKey: "showInMenuBar") as? Bool ?? true
         showInDock = defaults.object(forKey: "showInDock") as? Bool ?? false
         soundsEnabled = defaults.object(forKey: "soundsEnabled") as? Bool ?? false
+        overlayPosition = defaults.string(forKey: "overlayPosition") ?? "bottom"
+        overlaySize = defaults.string(forKey: "overlaySize") ?? "medium"
         hotkeyPreset = defaults.string(forKey: "hotkeyPreset") ?? HotkeyPreset.fn.rawValue
         customHotkeyKeyCode = defaults.object(forKey: "customHotkeyKeyCode") as? Int ?? 49
         customHotkeyModifiers = defaults.object(forKey: "customHotkeyModifiers") as? Int

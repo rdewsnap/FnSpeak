@@ -45,6 +45,24 @@ struct GeneralTab: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
 
+            Section("Overlay") {
+                Picker("Position", selection: $prefs.overlayPosition) {
+                    Text("Bottom center").tag("bottom")
+                    Text("Top center").tag("top")
+                    Text("Near the pointer").tag("cursor")
+                    Text("Hidden").tag("hidden")
+                }
+                Picker("Size", selection: $prefs.overlaySize) {
+                    Text("Small").tag("small")
+                    Text("Medium").tag("medium")
+                    Text("Large").tag("large")
+                }
+                if prefs.overlayPosition == "hidden" {
+                    Text("Errors and notes still appear so a failed dictation is never silent.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            }
+
             Section("Feedback") {
                 Toggle("Play a sound when dictation starts and stops", isOn: $prefs.soundsEnabled)
             }
