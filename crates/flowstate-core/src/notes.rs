@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub use rusqlite::Result;
+pub use rusqlite::{Error, Result};
 
 /// Speaker label for audio from the user's microphone.
 pub const SPEAKER_ME: &str = "me";
@@ -369,6 +369,33 @@ impl NotesStore {
         self.meeting_row(id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
     }
 
+    pub fn rename_meeting(&self, id: i64, title: &str) -> Result<Meeting> {
+        let changed = self.conn.execute("UPDATE meetings SET title = ?2 WHERE id = ?1", params![id, title])?;
+        if changed == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        self.meeting_row(id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+    }
+
+    pub fn set_participants(&self, id: i64, participants: &[String]) -> Result<Meeting> {
+        let changed = self.conn.execute("UPDATE meetings SET participants_json = ?2 WHERE id = ?1", params![id, to_json(participants)])?;
+        if changed == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        self.meeting_row(id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+    }
+
+    /// Tick an action item off, or back on. `index` is its position in
+    /// `action_items`. Fails with `QueryReturnedNoRows` if the meeting or the
+    /// item doesn't exist.
+    pub fn set_action_item_done(&self, id: i64, index: usize, done: bool) -> Result<Meeting> {
+        let mut meeting = self.meeting_row(id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let item = meeting.action_items.get_mut(index).ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        item.done = done;
+        self.conn.execute("UPDATE meetings SET action_items_json = ?2 WHERE id = ?1", params![id, to_json(&meeting.action_items)])?;
+        Ok(meeting)
+    }
+
     /// Meetings still marked as recording when the app starts were cut off
     /// by a crash or quit. Finish them so they can be summarized; the end
     /// time is the last thing anyone said.
@@ -438,15 +465,15 @@ impl NotesStore {
         }
         out.push('\n');
 
-        let summary = m.summary_md.as_deref().unwrap_or("").trim();
+        // The stored action items know what's been ticked off since the
+        // summary was written, so they replace the summary's own list.
+        let summary = m.summary_md.as_deref().unwrap_or("");
+        let summary = if m.action_items.is_empty() { summary.trim().to_string() } else { without_section(summary, "action item") };
         if !summary.is_empty() {
-            out.push_str(summary);
+            out.push_str(&summary);
             out.push_str("\n\n");
         }
-        // Summaries carry their own action items section; only add one if
-        // it's missing.
-        let has_section = summary.lines().any(|l| l.starts_with('#') && l.trim_start_matches('#').trim().to_lowercase().starts_with("action item"));
-        if !has_section && !m.action_items.is_empty() {
+        if !m.action_items.is_empty() {
             out.push_str("## Action items\n");
             for item in &m.action_items {
                 out.push_str(&format!("- [{}] ", if item.done { "x" } else { " " }));
@@ -559,6 +586,22 @@ fn fts_query(input: &str) -> Option<String> {
     let mut terms: Vec<String> = rest.iter().map(|w| format!("\"{w}\"")).collect();
     terms.push(format!("\"{last}\"*"));
     Some(terms.join(" "))
+}
+
+/// Markdown with one `#` section left out (matched by how its heading
+/// starts, ignoring case), trimmed.
+fn without_section(md: &str, heading: &str) -> String {
+    let mut kept = Vec::new();
+    let mut skipping = false;
+    for line in md.lines() {
+        if line.trim_start().starts_with('#') {
+            skipping = line.trim().trim_start_matches('#').trim().to_lowercase().starts_with(heading);
+        }
+        if !skipping {
+            kept.push(line);
+        }
+    }
+    kept.join("\n").trim().to_string()
 }
 
 /// `[00:12:34] Me: …` lines, one per segment.
@@ -732,6 +775,36 @@ mod tests {
     }
 
     #[test]
+    fn edits_meetings_after_recording() {
+        let store = NotesStore::in_memory().unwrap();
+        let m = meeting_with_segments(&store);
+        store.finish_meeting(m.id).unwrap();
+        let items = vec![
+            ActionItem { owner: None, task: "Draft the release notes".into(), due: None, done: false },
+            ActionItem { owner: None, task: "Book the room".into(), due: None, done: true },
+        ];
+        store.set_summary(m.id, "## Summary\n- Ship.", &items).unwrap();
+
+        let renamed = store.rename_meeting(m.id, "Launch retro").unwrap();
+        assert_eq!(renamed.title, "Launch retro");
+        assert!(store.search("kinju", 10).unwrap().iter().all(|h| h.kind != HitKind::Meeting));
+        assert_eq!(store.search("retro", 10).unwrap()[0].meeting_id, Some(m.id));
+
+        let m2 = store.set_participants(m.id, &["Priya".into()]).unwrap();
+        assert_eq!(m2.participants, vec!["Priya".to_string()]);
+
+        let ticked = store.set_action_item_done(m.id, 0, true).unwrap();
+        assert!(ticked.action_items[0].done);
+        let unticked = store.set_action_item_done(m.id, 1, false).unwrap();
+        assert_eq!(unticked.action_items.iter().map(|a| a.done).collect::<Vec<_>>(), vec![true, false]);
+        assert_eq!(store.meeting(m.id).unwrap().unwrap().0.action_items, unticked.action_items);
+
+        assert!(store.set_action_item_done(m.id, 2, true).is_err());
+        assert!(store.rename_meeting(m.id + 1, "x").is_err());
+        assert!(store.set_participants(m.id + 1, &[]).is_err());
+    }
+
+    #[test]
     fn deleting_a_meeting_removes_its_transcript_but_keeps_notes() {
         let store = NotesStore::in_memory().unwrap();
         let m = meeting_with_segments(&store);
@@ -774,9 +847,13 @@ mod tests {
         ));
         assert!(md.ends_with("## Transcript\n\n[00:00:00] Me: So the launch is Friday  \n[00:12:34] Others: I'll draft the release notes  \n"));
 
-        // A summary that already lists its action items doesn't get a second list.
-        store.set_summary(m.id, "## Summary\n- Ship.\n\n## Action items\n- [ ] Priya: Draft the release notes (Thursday)", &items).unwrap();
-        assert_eq!(store.export_meeting_markdown(m.id).unwrap().matches("## Action items").count(), 1);
+        // A summary that already lists its action items doesn't get a second
+        // list, and ticking one off shows in the export.
+        store.set_summary(m.id, "## Summary\n- Ship.\n\n## Action items\n- [ ] Priya: Draft the release notes (Thursday)\n\n## Open questions\n- Budget?", &items).unwrap();
+        store.set_action_item_done(m.id, 0, true).unwrap();
+        let md = store.export_meeting_markdown(m.id).unwrap();
+        assert_eq!(md.matches("## Action items").count(), 1);
+        assert!(md.contains("## Open questions\n- Budget?\n\n## Action items\n- [x] Priya: Draft the release notes (Thursday)\n"));
         assert!(store.export_meeting_markdown(m.id + 1).is_err());
     }
 

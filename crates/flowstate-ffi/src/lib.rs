@@ -375,8 +375,9 @@ impl FlowstateEngine {
  * Meetings:  start_meeting → feed_meeting_audio (repeatedly, from the audio
  *            threads) → finish_meeting. One meeting at a time.
  *            meetings(limit), meeting(id), delete_meeting(id),
- *            summarize_meeting(id) to retry a summary, and
- *            export_meeting_markdown(id).
+ *            summarize_meeting(id) to retry a summary,
+ *            export_meeting_markdown(id). Afterwards: rename_meeting,
+ *            update_meeting_participants, set_action_item_done.
  * Live view: set_meeting_listener; segment() is called on a background
  *            thread as each utterance is transcribed. Segments can arrive
  *            slightly out of order across the two sources; sort by
@@ -728,6 +729,28 @@ impl FlowstateEngine {
         self.store().delete_meeting(id).map_err(storage_err)
     }
 
+    pub fn rename_meeting(&self, id: i64, title: String) -> Result<Meeting, FlowstateError> {
+        let title = title.trim();
+        if title.is_empty() {
+            return Err(FlowstateError::Meeting("a meeting needs a title".into()));
+        }
+        self.store().rename_meeting(id, title).map_err(|e| missing_meeting(e, id))?;
+        self.full_meeting(id)
+    }
+
+    /// Tick off (or untick) the action item at `index` in `action_items`.
+    pub fn set_action_item_done(&self, meeting_id: i64, index: u32, done: bool) -> Result<Meeting, FlowstateError> {
+        self.store().set_action_item_done(meeting_id, index as usize, done).map_err(|e| missing_meeting(e, meeting_id))?;
+        self.full_meeting(meeting_id)
+    }
+
+    /// Replace the participant list. Blank names are dropped.
+    pub fn update_meeting_participants(&self, id: i64, participants: Vec<String>) -> Result<Meeting, FlowstateError> {
+        let participants: Vec<String> = participants.iter().map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect();
+        self.store().set_participants(id, &participants).map_err(|e| missing_meeting(e, id))?;
+        self.full_meeting(id)
+    }
+
     pub fn export_meeting_markdown(&self, id: i64) -> Result<String, FlowstateError> {
         self.store().export_meeting_markdown(id).map_err(storage_err)
     }
@@ -743,6 +766,10 @@ impl FlowstateEngine {
         self.notes.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    fn full_meeting(&self, id: i64) -> Result<Meeting, FlowstateError> {
+        self.meeting(id)?.ok_or_else(|| FlowstateError::Meeting(format!("no meeting {id}")))
+    }
+
     fn note_draft(&self, note: NoteInput) -> notes::NoteDraft {
         let title = if note.title.trim().is_empty() {
             let llm = self.pipeline.lock().unwrap().llm();
@@ -751,6 +778,13 @@ impl FlowstateEngine {
             note.title
         };
         notes::NoteDraft { title, body_md: note.body_md, source: note.source.into(), meeting_id: note.meeting_id, tags: note.tags, pinned: note.pinned }
+    }
+}
+
+fn missing_meeting(e: notes::Error, id: i64) -> FlowstateError {
+    match e {
+        notes::Error::QueryReturnedNoRows => FlowstateError::Meeting(format!("no meeting {id}, or no such action item")),
+        other => storage_err(other),
     }
 }
 
