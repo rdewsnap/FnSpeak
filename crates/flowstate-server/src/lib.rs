@@ -6,6 +6,7 @@ pub mod auth;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod glossary;
 pub mod mail;
 pub mod ratelimit;
 pub mod store;
@@ -55,6 +56,9 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/teams/{id}/invites", get(teams::list_invites).post(teams::invite))
         .route("/v1/teams/{id}/invites/{invite_id}", delete(teams::revoke_invite))
         .route("/v1/teams/{id}/members/{user_id}", patch(teams::set_role).delete(teams::remove_member))
+        .route("/v1/teams/{id}/glossary", get(glossary::list).post(glossary::add))
+        .route("/v1/teams/{id}/glossary/{term_id}", delete(glossary::remove))
+        .route("/v1/glossary", get(glossary::mine))
         .route("/v1/invites/{token}", get(teams::show_invite))
         .route("/v1/invites/{token}/accept", post(teams::accept_invite))
         .route("/v1/notes", get(sync::list_notes))
