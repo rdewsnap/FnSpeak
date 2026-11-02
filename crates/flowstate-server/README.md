@@ -80,8 +80,9 @@ Sync: `PUT` or push a note or meeting with your own `updated_at`; it's stored on
 
 ## Pointing the Mac app at a server
 
-1. Get a token: `curl -X POST $SERVER/v1/auth/magic-link -H 'content-type: application/json' -d '{"email":"you@example.com"}'`, open the emailed (or logged) link and press **Sign in**.
-2. In Flowstate's settings, set cleanup to **Cloud**, provider **Other OpenAI-compatible**, base URL `$SERVER/v1`, paste the token as the API key and press **Save**. The model fields can be anything; the server uses its own model.
+1. Open Flowstate's settings, go to **Account**, enter the server URL (or leave the default for Flowstate Cloud) and your email, and request a sign-in link.
+2. Open the emailed (or logged) link, press **Sign in**, and paste the link or the token it shows back into the Account tab.
+3. Turn on **Sync** to keep notes and meetings on the server, and pick **Flowstate Cloud (or your server)** as the cleanup provider if you want hosted cleanup and summaries.
 
 If the server can't be reached or answers with an error, the app falls back to its rule-based cleanup.
 
