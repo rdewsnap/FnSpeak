@@ -139,6 +139,7 @@ pub enum TermSource {
     Calendar,
     User,
     Correction,
+    Learned,
 }
 
 impl From<TermSource> for vocab::Source {
@@ -149,8 +150,17 @@ impl From<TermSource> for vocab::Source {
             TermSource::Calendar => vocab::Source::Calendar,
             TermSource::User => vocab::Source::User,
             TermSource::Correction => vocab::Source::Correction,
+            TermSource::Learned => vocab::Source::Learned,
         }
     }
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct LearnedCorrection {
+    /// What Flowstate wrote, lowercased. Pass back to `forget_correction`.
+    pub heard: String,
+    /// The user's spelling, now applied to new dictations.
+    pub corrected: String,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -274,6 +284,20 @@ impl FlowstateEngine {
     /// The user edited inserted text: learn the corrected spelling.
     pub fn record_correction(&self, heard: String, corrected: String) -> Result<(), FlowstateError> {
         self.pipeline.lock().unwrap().vocab.record_correction(&heard, &corrected).map(|_| ()).map_err(storage_err)
+    }
+
+    /// The user edited a dictation after it was inserted. `inserted` is what
+    /// Flowstate typed, `final_text` the same region of the field now. Returns
+    /// corrections that start applying because of this edit.
+    pub fn learn_from_edit(&self, inserted: String, final_text: String) -> Result<Vec<LearnedCorrection>, FlowstateError> {
+        let mut p = self.pipeline.lock().unwrap();
+        let learned = p.vocab.learn_from_edit(&inserted, &final_text).map_err(storage_err)?;
+        Ok(learned.into_iter().map(|c| LearnedCorrection { heard: c.heard, corrected: c.corrected }).collect())
+    }
+
+    /// Undo something `learn_from_edit` learned.
+    pub fn forget_correction(&self, heard: String, corrected: String) -> Result<bool, FlowstateError> {
+        self.pipeline.lock().unwrap().vocab.forget_correction(&heard, &corrected).map_err(storage_err)
     }
 
     /// Raw transcript of the most recent dictation, for the swap-to-raw shortcut.
