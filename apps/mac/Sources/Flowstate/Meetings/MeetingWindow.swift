@@ -57,7 +57,12 @@ struct MeetingWindowView: View {
             case .processing:
                 MeetingProcessingView(controller: controller)
             case .idle:
-                MeetingEmptyView(controller: controller)
+                if let meeting = controller.finished {
+                    MeetingDetailView(controller: controller, meeting: meeting)
+                        .id(meeting.id)
+                } else {
+                    MeetingEmptyView(controller: controller)
+                }
             }
         }
         .frame(minWidth: 460, minHeight: 420)
