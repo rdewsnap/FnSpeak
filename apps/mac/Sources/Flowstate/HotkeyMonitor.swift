@@ -1,102 +1,271 @@
 import AppKit
+import ApplicationServices
 
-/// Watches the Fn (globe) key.
+/// Watches the dictation hotkey (Fn by default, see `Hotkey`).
 ///
-/// - Hold Fn: record while held, transcribe on release.
-/// - Double-tap Fn: hands-free; recording continues until Fn is pressed again.
-/// - Fn used as a modifier (Fn+arrow, Fn+F-key) cancels instead of dictating.
+/// How a press behaves depends on the trigger style in settings:
+/// - hold: record while held, transcribe on release.
+/// - toggle: press to start, press again to finish.
+/// - both: hold to talk, or double-tap for hands-free and press again to finish.
 ///
-/// Global key monitoring needs the Accessibility permission.
+/// A lone modifier key used as a modifier (Fn+arrow, Right ⌘+C) cancels
+/// instead of dictating. Esc cancels a recording.
+///
+/// Events come from an event tap when Accessibility is granted, which lets
+/// the hotkey and Esc be consumed instead of reaching the frontmost app.
+/// Without it, plain NSEvent monitors still observe them.
 final class HotkeyMonitor {
-    var onStart: (() -> Void)?
+    /// Return false if recording didn't start (paused, excluded app, no mic).
+    var onStart: (() -> Bool)?
     var onFinish: (() -> Void)?
     var onCancel: (() -> Void)?
+    /// A double-tap switched a running recording to hands-free.
+    var onHandsFree: (() -> Void)?
     /// ⌃⌥Z: swap the last dictation for its raw transcript.
     var onSwapToRaw: (() -> Void)?
 
-    private static let fnKeyCode: UInt16 = 63
+    /// Set while the shortcut recorder is capturing keys.
+    static var isSuspended = false
+
     private static let zKeyCode: UInt16 = 6
-    /// A press shorter than this is a tap, not a hold.
-    private let tapMax: TimeInterval = 0.25
+    private static let escKeyCode: UInt16 = 53
     /// Second tap must come within this long for a double-tap.
     private let doubleTapWindow: TimeInterval = 0.35
+    /// A press shorter than this is a tap, not a hold.
+    private let tapMax: TimeInterval = 0.25
 
+    private let prefs = Preferences.shared
     private var monitors: [Any] = []
-    private var fnDown = false
+    private var tap: CFMachPort?
+    private var tapSource: CFRunLoopSource?
+    private var upgradeTimer: Timer?
+
+    private var triggerDown = false
+    /// A recording started by this monitor is running.
+    private var active = false
     private var pressedAt = Date.distantPast
     private var handsFree = false
     private var awaitingSecondTap = false
     private var usedAsModifier = false
+    /// The current press was refused or cancelled; ignore it until released.
+    private var ignoreUntilRelease = false
+    /// A combo's key-down was consumed, so its key-up should be too.
+    private var comboKeyDown = false
     private var tapTimer: Timer?
 
+    private enum Style: String { case hold, toggle, both }
+    private var style: Style { Style(rawValue: prefs.triggerStyle) ?? .both }
+
     func start() {
-        let flags: (NSEvent) -> Void = { [weak self] in self?.handleFlags($0) }
-        let keys: (NSEvent) -> Void = { [weak self] in self?.handleKey($0) }
-        monitors.append(NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged, handler: flags) as Any)
-        monitors.append(NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: keys) as Any)
-        monitors.append(NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { flags($0); return $0 } as Any)
-        monitors.append(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { keys($0); return $0 } as Any)
+        if installTap() { return }
+        installMonitors()
+        // Accessibility is often granted after launch; switch to the tap when it is.
+        upgradeTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] timer in
+            guard let self, AXIsProcessTrusted(), self.installTap() else { return }
+            self.removeMonitors()
+            timer.invalidate()
+        }
     }
 
     func stop() {
+        upgradeTimer?.invalidate()
+        removeMonitors()
+        if let tapSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), tapSource, .commonModes) }
+        if let tap { CFMachPortInvalidate(tap) }
+        tap = nil
+        tapSource = nil
+    }
+
+    /// The recording ended some way other than the hotkey (auto-stop, a menu action).
+    func recordingEnded() {
+        active = false
+        handsFree = false
+        awaitingSecondTap = false
+        tapTimer?.invalidate()
+        if triggerDown { ignoreUntilRelease = true }
+    }
+
+    // MARK: - Event sources
+
+    private func installMonitors() {
+        guard monitors.isEmpty else { return }
+        let handler: (NSEvent) -> Void = { [weak self] in _ = self?.process($0) }
+        let types: [NSEvent.EventTypeMask] = [.flagsChanged, .keyDown, .keyUp]
+        for type in types {
+            monitors.append(NSEvent.addGlobalMonitorForEvents(matching: type, handler: handler) as Any)
+            monitors.append(NSEvent.addLocalMonitorForEvents(matching: type) { handler($0); return $0 } as Any)
+        }
+    }
+
+    private func removeMonitors() {
         monitors.forEach { NSEvent.removeMonitor($0) }
         monitors.removeAll()
     }
 
-    private func handleFlags(_ event: NSEvent) {
-        guard event.keyCode == Self.fnKeyCode else { return }
-        let down = event.modifierFlags.contains(.function)
-        guard down != fnDown else { return }
-        fnDown = down
-        down ? fnPressed() : fnReleased()
+    private func installTap() -> Bool {
+        guard tap == nil else { return true }
+        let mask: CGEventMask = (1 << CGEventType.keyDown.rawValue)
+            | (1 << CGEventType.keyUp.rawValue)
+            | (1 << CGEventType.flagsChanged.rawValue)
+        let callback: CGEventTapCallBack = { _, type, event, refcon in
+            guard let refcon else { return Unmanaged.passUnretained(event) }
+            return Unmanaged<HotkeyMonitor>.fromOpaque(refcon).takeUnretainedValue().tapped(type, event)
+        }
+        guard let port = CGEvent.tapCreate(
+            tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
+            eventsOfInterest: mask, callback: callback, userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else { return false }
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: port, enable: true)
+        tap = port
+        tapSource = source
+        return true
     }
 
-    private func fnPressed() {
-        usedAsModifier = false
-        if handsFree {
-            handsFree = false
-            onFinish?()
-            return
+    private func tapped(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            return Unmanaged.passUnretained(event)
         }
-        if awaitingSecondTap {
-            // Double-tap: recording is already running from the first tap.
-            awaitingSecondTap = false
-            tapTimer?.invalidate()
-            handsFree = true
-            return
-        }
-        pressedAt = Date()
-        onStart?()
+        guard let nsEvent = NSEvent(cgEvent: event), process(nsEvent) else { return Unmanaged.passUnretained(event) }
+        return nil
     }
 
-    private func fnReleased() {
-        if handsFree { return }
-        if usedAsModifier {
-            onCancel?()
-            return
-        }
-        let held = Date().timeIntervalSince(pressedAt)
-        if held >= tapMax {
-            onFinish?()
-            return
-        }
-        // A quick tap: wait to see whether it's the first half of a double-tap.
-        awaitingSecondTap = true
-        tapTimer?.invalidate()
-        tapTimer = Timer.scheduledTimer(withTimeInterval: doubleTapWindow, repeats: false) { [weak self] _ in
-            guard let self, self.awaitingSecondTap else { return }
-            self.awaitingSecondTap = false
-            self.onCancel?()
+    // MARK: - Events
+
+    /// Returns true if the event should be consumed.
+    private func process(_ event: NSEvent) -> Bool {
+        guard !Self.isSuspended else { return false }
+        switch event.type {
+        case .flagsChanged: return handleFlags(event)
+        case .keyDown: return handleKeyDown(event)
+        case .keyUp: return handleKeyUp(event)
+        default: return false
         }
     }
 
-    private func handleKey(_ event: NSEvent) {
-        if fnDown && !handsFree {
-            usedAsModifier = true
+    private func handleFlags(_ event: NSEvent) -> Bool {
+        let hotkey = prefs.hotkey
+        if hotkey.isModifierOnly {
+            if event.keyCode == hotkey.keyCode { setTrigger(hotkey.isDown(in: event.modifierFlags)) }
+        } else if triggerDown {
+            // Let go of the modifiers before the key: that ends the press too.
+            let held = event.modifierFlags.intersection(Hotkey.relevant)
+            if !held.isSuperset(of: hotkey.modifiers) { setTrigger(false) }
         }
-        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return false
+    }
+
+    private func handleKeyDown(_ event: NSEvent) -> Bool {
+        let mods = event.modifierFlags.intersection(Hotkey.relevant)
+        if event.keyCode == Self.escKeyCode && mods.isEmpty && prefs.escapeCancels && active {
+            cancel()
+            return true
+        }
         if event.keyCode == Self.zKeyCode && mods == [.control, .option] {
             onSwapToRaw?()
+            return false
         }
+
+        let hotkey = prefs.hotkey
+        if hotkey.isModifierOnly {
+            if triggerDown && !handsFree { usedAsModifier = true }
+            return false
+        }
+        guard event.keyCode == hotkey.keyCode, mods == hotkey.modifiers else { return false }
+        comboKeyDown = true
+        if !event.isARepeat { setTrigger(true) }
+        return true
+    }
+
+    private func handleKeyUp(_ event: NSEvent) -> Bool {
+        let hotkey = prefs.hotkey
+        guard !hotkey.isModifierOnly, event.keyCode == hotkey.keyCode else { return false }
+        setTrigger(false)
+        let consume = comboKeyDown
+        comboKeyDown = false
+        return consume
+    }
+
+    // MARK: - Trigger
+
+    private func setTrigger(_ down: Bool) {
+        guard down != triggerDown else { return }
+        triggerDown = down
+        down ? pressed() : released()
+    }
+
+    private func pressed() {
+        usedAsModifier = false
+        ignoreUntilRelease = false
+        switch style {
+        case .toggle:
+            active ? finish() : begin()
+        case .hold:
+            pressedAt = Date()
+            begin()
+        case .both:
+            if handsFree {
+                finish()
+            } else if awaitingSecondTap {
+                // Double-tap: recording is already running from the first tap.
+                awaitingSecondTap = false
+                tapTimer?.invalidate()
+                handsFree = true
+                onHandsFree?()
+            } else {
+                pressedAt = Date()
+                begin()
+            }
+        }
+    }
+
+    private func released() {
+        if ignoreUntilRelease {
+            ignoreUntilRelease = false
+            return
+        }
+        guard active else { return }
+        switch style {
+        case .toggle:
+            return
+        case .hold:
+            usedAsModifier ? cancel() : finish()
+        case .both:
+            if handsFree { return }
+            if usedAsModifier {
+                cancel()
+            } else if Date().timeIntervalSince(pressedAt) >= tapMax {
+                finish()
+            } else {
+                // A quick tap: wait to see whether it's the first half of a double-tap.
+                awaitingSecondTap = true
+                tapTimer?.invalidate()
+                tapTimer = Timer.scheduledTimer(withTimeInterval: doubleTapWindow, repeats: false) { [weak self] _ in
+                    guard let self, self.awaitingSecondTap else { return }
+                    self.cancel()
+                }
+            }
+        }
+    }
+
+    private func begin() {
+        if onStart?() == true {
+            active = true
+        } else {
+            ignoreUntilRelease = true
+        }
+    }
+
+    private func finish() {
+        active = false
+        handsFree = false
+        onFinish?()
+    }
+
+    private func cancel() {
+        recordingEnded()
+        onCancel?()
     }
 }

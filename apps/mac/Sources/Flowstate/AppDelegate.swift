@@ -22,9 +22,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainMenu.install(target: self, settings: #selector(openSettings), about: #selector(openAbout))
         setUpStatusItem()
         recorder.onLevel = { [weak self] in self?.overlay.setLevel($0) }
-        hotkeys.onStart = { [weak self] in self?.startRecording() }
+        hotkeys.onStart = { [weak self] in self?.startRecording() ?? false }
         hotkeys.onFinish = { [weak self] in self?.finishRecording() }
         hotkeys.onCancel = { [weak self] in self?.cancelRecording() }
+        hotkeys.onHandsFree = { [weak self] in self?.overlay.show(.listening(handsFree: true)) }
         hotkeys.onSwapToRaw = { [weak self] in self?.swapToRaw() }
         editWatcher.onEdit = { [weak self] in self?.learn(inserted: $0, edited: $1) }
 
@@ -44,19 +45,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Dictation
 
-    private func startRecording() {
+    private func startRecording() -> Bool {
         // Whatever the user did to the last dictation, they're done with it.
         editWatcher.finish()
         guard AudioRecorder.hasPermission else {
             overlay.show(.message("Flowstate needs microphone access"))
-            return
+            return false
         }
         pendingContext = ContextReader.current()
         do {
             try recorder.start()
-            overlay.show(.listening(handsFree: false))
+            overlay.show(.listening(handsFree: prefs.triggerStyle == "toggle"))
+            return true
         } catch {
             overlay.show(.message("Couldn't start the microphone"))
+            return false
         }
     }
 
@@ -167,7 +170,7 @@ extension AppDelegate: NSMenuDelegate {
         let status: String
         switch engine.status {
         case .loading: status = "Loading speech model…"
-        case .ready: status = "Ready — hold Fn to dictate"
+        case .ready: status = prefs.triggerStyle == "toggle" ? "Ready — press \(prefs.hotkey.displayName) to dictate" : "Ready — hold \(prefs.hotkey.displayName) to dictate"
         case .failed(let message): status = "Problem: \(message)"
         }
         menu.addItem(withTitle: status, action: nil, keyEquivalent: "")

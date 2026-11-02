@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Security
 
@@ -37,6 +38,16 @@ final class Preferences: ObservableObject {
     /// Bundle id → `ax` or `type`, for apps where pasting doesn't work.
     @Published var insertionOverrides: [String: String] { didSet { defaults.set(insertionOverrides, forKey: "insertionOverrides") } }
 
+    // MARK: Dictation
+
+    /// A `HotkeyPreset` raw value.
+    @Published var hotkeyPreset: String { didSet { defaults.set(hotkeyPreset, forKey: "hotkeyPreset") } }
+    @Published var customHotkeyKeyCode: Int { didSet { defaults.set(customHotkeyKeyCode, forKey: "customHotkeyKeyCode") } }
+    @Published var customHotkeyModifiers: Int { didSet { defaults.set(customHotkeyModifiers, forKey: "customHotkeyModifiers") } }
+    /// `hold`, `toggle` or `both` (hold, or double-tap for hands-free).
+    @Published var triggerStyle: String { didSet { defaults.set(triggerStyle, forKey: "triggerStyle") } }
+    @Published var escapeCancels: Bool { didSet { defaults.set(escapeCancels, forKey: "escapeCancels") } }
+
     private init() {
         onboarded = defaults.bool(forKey: "onboarded")
         mode = defaults.string(forKey: "mode") ?? "filterOnly"
@@ -52,6 +63,28 @@ final class Preferences: ObservableObject {
         historyDays = defaults.object(forKey: "historyDays") as? Int ?? 30
         learnFromCorrections = defaults.object(forKey: "learnFromCorrections") as? Bool ?? true
         insertionOverrides = defaults.dictionary(forKey: "insertionOverrides") as? [String: String] ?? [:]
+        hotkeyPreset = defaults.string(forKey: "hotkeyPreset") ?? HotkeyPreset.fn.rawValue
+        customHotkeyKeyCode = defaults.object(forKey: "customHotkeyKeyCode") as? Int ?? 49
+        customHotkeyModifiers = defaults.object(forKey: "customHotkeyModifiers") as? Int
+            ?? Int(NSEvent.ModifierFlags([.control, .option]).rawValue)
+        triggerStyle = defaults.string(forKey: "triggerStyle") ?? "both"
+        escapeCancels = defaults.object(forKey: "escapeCancels") as? Bool ?? true
+    }
+
+    var customHotkey: Hotkey {
+        get {
+            Hotkey(keyCode: UInt16(clamping: customHotkeyKeyCode),
+                   modifiers: NSEvent.ModifierFlags(rawValue: UInt(clamping: customHotkeyModifiers)).intersection(Hotkey.relevant))
+        }
+        set {
+            customHotkeyKeyCode = Int(newValue.keyCode)
+            customHotkeyModifiers = Int(newValue.modifiers.rawValue)
+        }
+    }
+
+    /// The key that starts dictation.
+    var hotkey: Hotkey {
+        (HotkeyPreset(rawValue: hotkeyPreset) ?? .fn).hotkey ?? customHotkey
     }
 
     /// Sensible model defaults when switching providers.

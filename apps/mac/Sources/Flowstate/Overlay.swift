@@ -101,7 +101,7 @@ private struct PillView: View {
             switch model.state {
             case .listening(let handsFree):
                 LevelBars(level: model.level)
-                Text(handsFree ? "Listening — press Fn to finish" : "Listening")
+                Text(handsFree ? "Listening — press \(Preferences.shared.hotkey.displayName) to finish" : "Listening")
             case .working:
                 ProgressView().controlSize(.small)
                 Text("Cleaning up")
