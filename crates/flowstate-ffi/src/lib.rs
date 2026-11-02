@@ -2,7 +2,7 @@
 //! `uniffi-bindgen` (see `scripts/build-mac.sh`); a C# binding can come from
 //! the same definitions when the Windows shell lands.
 
-use flowstate_core::cleanup::{AnthropicCleaner, Cleaner, LocalCleaner, LocalConfig, OpenAiCompatCleaner, RoutedCleaner};
+use flowstate_core::cleanup::{AnthropicCleaner, Cleaner, FlowstateCleaner, LocalCleaner, LocalConfig, OpenAiCompatCleaner, RoutedCleaner};
 use flowstate_core::context::Style;
 use flowstate_core::history::History;
 use flowstate_core::meeting::{self as live, MeetingSession, PipelineTranscriber, SegmentListener, VadConfig};
@@ -77,8 +77,11 @@ pub enum SpeechEngine {
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum CloudProvider {
     Anthropic,
-    /// Groq, OpenRouter, OpenAI, Ollama, LM Studio, Flowstate Cloud.
+    /// Groq, OpenRouter, OpenAI, Ollama, LM Studio.
     OpenAiCompatible { base_url: String },
+    /// A Flowstate server's API root (`…/v1`), with the account token as
+    /// the key. Cleanup and meeting summaries both run on the server.
+    Flowstate { base_url: String },
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -844,12 +847,16 @@ fn build_cleaner(mode: CleanupMode, local: Option<&LocalModel>, cloud: Option<&C
         }
         CleanupMode::Cloud => {
             let cloud = cloud.ok_or_else(|| FlowstateError::Setup("cloud mode needs a provider".into()))?;
+            if let CloudProvider::Flowstate { base_url } = &cloud.provider {
+                let token = cloud.api_key.clone().filter(|k| !k.is_empty()).ok_or_else(|| FlowstateError::Setup("sign in to use the Flowstate server".into()))?;
+                return Ok(Some(Box::new(FlowstateCleaner::new(base_url.clone(), token).map_err(setup_err)?)));
+            }
             let make = |model: &str| -> Result<Box<dyn Cleaner>, FlowstateError> {
                 Ok(match &cloud.provider {
                     CloudProvider::Anthropic => Box::new(
                         AnthropicCleaner::new(cloud.api_key.clone().unwrap_or_default(), Some(model.to_string())).map_err(setup_err)?,
                     ),
-                    CloudProvider::OpenAiCompatible { base_url } => {
+                    CloudProvider::OpenAiCompatible { base_url } | CloudProvider::Flowstate { base_url } => {
                         Box::new(OpenAiCompatCleaner::new(base_url.clone(), cloud.api_key.clone(), model).map_err(setup_err)?)
                     }
                 })

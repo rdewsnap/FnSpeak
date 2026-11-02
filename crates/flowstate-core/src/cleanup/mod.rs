@@ -6,11 +6,13 @@
 //! trusted. Anything that fails falls back to the rule-based filter output.
 
 mod cloud;
+mod flowstate;
 mod local;
 mod prompt;
 mod route;
 
 pub use cloud::{AnthropicCleaner, OpenAiCompatCleaner};
+pub use flowstate::FlowstateCleaner;
 pub use local::{LlamaServer, LocalCleaner, LocalConfig};
 pub use prompt::{build_user_message, SYSTEM_PROMPT};
 pub use route::{needs_repair, RoutedCleaner};
