@@ -144,6 +144,9 @@ final class EngineController: ObservableObject {
 
     func lastRaw() -> String? { engine?.lastRaw() }
 
+    /// The loaded engine, for callers that run on their own queue (notes).
+    var core: FlowstateEngine? { engine }
+
     // MARK: - Config
 
     private func makeConfig() throws -> EngineConfig {

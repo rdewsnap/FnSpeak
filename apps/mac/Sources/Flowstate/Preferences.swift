@@ -207,3 +207,75 @@ enum Keychain {
         SecItemDelete(query as CFDictionary)
     }
 }
+
+// MARK: Notes
+
+/// Notes settings. Computed over UserDefaults so they can sit apart from the
+/// stored settings above.
+extension Preferences {
+    private func stored<T>(_ key: String, _ fallback: T) -> T {
+        UserDefaults.standard.object(forKey: key) as? T ?? fallback
+    }
+
+    private func store(_ value: Any, _ key: String) {
+        objectWillChange.send()
+        UserDefaults.standard.set(value, forKey: key)
+    }
+
+    var notesHotkeyKeyCode: Int {
+        get { stored("notesHotkeyKeyCode", 49) }
+        set { store(newValue, "notesHotkeyKeyCode") }
+    }
+
+    var notesHotkeyModifiers: Int {
+        get { stored("notesHotkeyModifiers", Int(NSEvent.ModifierFlags.option.rawValue)) }
+        set { store(newValue, "notesHotkeyModifiers") }
+    }
+
+    /// Opens the notes bar. ⌥Space by default.
+    var notesHotkey: Hotkey {
+        get {
+            Hotkey(keyCode: UInt16(clamping: notesHotkeyKeyCode),
+                   modifiers: NSEvent.ModifierFlags(rawValue: UInt(clamping: notesHotkeyModifiers)).intersection(Hotkey.relevant))
+        }
+        set {
+            notesHotkeyKeyCode = Int(newValue.keyCode)
+            notesHotkeyModifiers = Int(newValue.modifiers.rawValue)
+        }
+    }
+
+    /// Where the notes bar opens: `pill`, `center` or `top`.
+    var notesBarPosition: String {
+        get { stored("notesBarPosition", "pill") }
+        set { store(newValue, "notesBarPosition") }
+    }
+
+    /// Let the cleanup model title new notes; off uses the first line.
+    var notesAutoTitle: Bool {
+        get { stored("notesAutoTitle", true) }
+        set { store(newValue, "notesAutoTitle") }
+    }
+
+    /// Folder that gets a Markdown copy of every note. Empty is off.
+    var notesExportFolder: String {
+        get { stored("notesExportFolder", "") }
+        set { store(newValue, "notesExportFolder") }
+    }
+
+    /// Also keep long dictations as notes.
+    var saveDictationsAsNotes: Bool {
+        get { stored("saveDictationsAsNotes", false) }
+        set { store(newValue, "saveDictationsAsNotes") }
+    }
+
+    var dictationNoteMinWords: Int {
+        get { stored("dictationNoteMinWords", 40) }
+        set { store(newValue, "dictationNoteMinWords") }
+    }
+
+    /// Only changes the MCP setup snippet shown in settings.
+    var mcpAllowWrite: Bool {
+        get { stored("mcpAllowWrite", false) }
+        set { store(newValue, "mcpAllowWrite") }
+    }
+}

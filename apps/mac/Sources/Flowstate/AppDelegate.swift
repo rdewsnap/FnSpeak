@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let overlay = Overlay()
     private let editWatcher = EditWatcher()
     private lazy var indexer = PersonalIndexer(engine: engine)
+    private let notes = NotesController.shared
 
     private var statusItem: NSStatusItem!
     private var settingsController: SettingsWindowController?
@@ -39,6 +40,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeys.onHandsFree = { [weak self] in self?.overlay.show(.listening(handsFree: true)) }
         hotkeys.onSwapToRaw = { [weak self] in self?.swapToRaw() }
         editWatcher.onEdit = { [weak self] in self?.learn(inserted: $0, edited: $1) }
+        notes.start(engine: engine, toggleMic: { [weak self] in self?.toggleNoteDictation() },
+                    isListening: { [weak self] in self?.phase == .listening })
 
         if prefs.onboarded {
             begin()
@@ -116,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .success(let dictation):
                 Log.info("Dictation ok: stt \(dictation.sttMs) ms, cleanup \(dictation.cleanupMs) ms (\(dictation.cleaner ?? "no model"))")
                 guard !dictation.insert.isEmpty else { return self.overlay.show(.hidden) }
+                if self.notes.insertDictation(dictation.insert) { return self.overlay.show(.pasted) }
                 TextInserter.insert(dictation.insert, bundleId: context.appId)
                 self.lastInsert = (dictation.insert, context.appId)
                 if self.prefs.learnFromCorrections { self.editWatcher.watch(dictation.insert) }
@@ -151,6 +155,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         phase = .idle
         pendingContext = nil
         overlay.show(.hidden)
+    }
+
+    /// The notes bar's mic button: start a dictation, or finish the running one.
+    private func toggleNoteDictation() {
+        if phase == .listening {
+            hotkeys.recordingEnded()
+            finishRecording()
+        } else {
+            _ = startRecording()
+        }
     }
 
     private func swapToRaw() {
@@ -345,6 +359,7 @@ extension AppDelegate: NSMenuDelegate {
         recents.submenu = submenu
         menu.addItem(recents)
         menu.addItem(.separator())
+        notes.addMenuItems(to: menu)
 
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
