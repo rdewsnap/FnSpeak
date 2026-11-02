@@ -2,7 +2,7 @@
 
 Dictation for macOS that runs on your Mac and learns how you talk.
 
-I tried one of the paid dictation apps, loved what it did to my rambling, and couldn't justify a subscription for something my laptop can clearly do itself. So I built the one I wanted. Hold Fn, talk, let go. It drops the ums, fixes "send it to Sam, sorry, Priya", and spells my company's name right because it read it off my projects folder.
+I tried one of the paid dictation apps, loved what it did to my rambling, and couldn't justify a subscription for something my laptop can clearly do itself. So I built the one I wanted. Hold Fn, talk, let go. It drops the ums, fixes "send it to Sam, sorry, Priya", and spells my company's name right because I corrected it once and it remembered.
 
 Speech-to-text never leaves your machine. On most Apple Silicon Macs the cleanup model runs locally too. No account needed. Open source under the AGPL.
 
@@ -10,7 +10,17 @@ Speech-to-text never leaves your machine. On most Apple Silicon Macs the cleanup
 
 Hold Fn and talk. When you let go, the text lands in whatever field you were in, cleaned up: fillers gone, stutters and repeats gone, and if you corrected yourself mid-sentence ("book it for Monday, actually Tuesday") you get the corrected version. It reads the field you're typing into, so Slack gets casual, Mail gets prose, and the terminal gets exactly what you said.
 
-It knows your words. It picks names up from your projects folder, contacts and calendar, so project names and people come out spelled the way you spell them.
+It knows your words. It picks names up from your projects folder, contacts and calendar, and it learns from you: if it hears "kin ju" and you retype it to Kinju, next time it's Kinju. There's an undo on the pill if it guessed wrong.
+
+Say "scratch that" to drop the last sentence, "new line" or "new paragraph" for what you'd expect, and "send it" to press Return if you've turned that on.
+
+A few things grew out of using it every day:
+
+- **Notes.** ⌥Space opens a little bar for a quick note, typed or dictated. Everything's searchable. Notes can mirror to a folder as Markdown if you live in Obsidian.
+- **Meetings.** It records your mic and the call's audio, transcribes as you go, and when you stop you get a summary with decisions and action items. The audio isn't kept.
+- **Your AI tools can read your notes.** There's a small MCP server in the app bundle, so Claude, Cursor or whatever you use can search your notes and meetings. Read-only, local, no network.
+- **Integrations.** Apple Notes, a signed webhook, meeting summaries written back to the calendar event, Shortcuts actions and `flowstate://` links.
+- **Your clipboard is left alone.** Pasting the dictation saves and restores whatever you had copied, and tells clipboard managers to ignore it.
 
 If the cleanup model is slow, missing or makes something up, you get the rule-cleaned text instead. You never lose a dictation.
 
@@ -27,8 +37,6 @@ open build/Flowstate.app
 
 Homebrew's llama.cpp currently fails to compile its Metal shaders on macOS 15, which is why the second script builds a pinned version. First launch asks for microphone and Accessibility access and picks a cleanup mode based on your hardware.
 
-When there is a signed build it'll be on the Releases page as a `.dmg`, and `brew install --cask flowstate` once I've set up a tap.
-
 If Fn opens the emoji picker, set System Settings → Keyboard → "Press 🌐 key to" → Do Nothing.
 
 | | |
@@ -36,6 +44,7 @@ If Fn opens the emoji picker, set System Settings → Keyboard → "Press 🌐 k
 | Hold Fn | dictate while held |
 | Double-tap Fn | hands-free, press Fn again to stop |
 | ⌃⌥Z | swap the last dictation for the raw transcript |
+| ⌥Space | notes bar |
 
 ## How it works
 
@@ -57,18 +66,16 @@ I've also started on fine-tuning a smaller model so slower Macs can do cleanup l
 
 ## Connecting an AI assistant
 
-There's a small MCP server in the app bundle so Claude, Cursor or whatever you use can search your dictation history, and later your notes. Nothing leaves the machine.
-
 ```json
 {"mcpServers":{"flowstate":{"command":"/Applications/Flowstate.app/Contents/MacOS/flowstate-mcp"}}}
 ```
 
-Or for Claude Code: `claude mcp add flowstate -- /Applications/Flowstate.app/Contents/MacOS/flowstate-mcp`. It's read-only and local; add `--allow-write` if you want the assistant to be able to save notes.
+Or for Claude Code: `claude mcp add flowstate -- /Applications/Flowstate.app/Contents/MacOS/flowstate-mcp`. Add `--allow-write` if you want the assistant to be able to save notes.
 
 ## Layout
 
 ```
-crates/flowstate-core     the pipeline: STT, filter, vocabulary, cleanup
+crates/flowstate-core     the pipeline: STT, filter, vocabulary, cleanup, commands, notes, meetings
 crates/flowstate-ffi      UniFFI bindings for the Mac app
 crates/flowstate-mcp      the local MCP server
 crates/flowstate-bench    benchmark CLI
