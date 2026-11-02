@@ -121,7 +121,8 @@ async fn meetings_action_items_and_create_note() {
     let meeting = json!({
         "started_at": 1_790_000_000_000_i64, "updated_at": 1, "title": "Planning",
         "summary_md": "Agreed to ship Friday.", "raw_transcript_md": "Ada: let's ship Friday",
-        "action_items_json": [{ "text": "Write release notes", "done": false }, { "text": "Book room", "done": true }],
+        "action_items_json": [{ "owner": "Me", "task": "Write release notes", "due": "Thursday", "done": false },
+                              { "owner": null, "task": "Book room", "due": null, "done": true }],
     });
     app.put(&format!("/v1/meetings/{id}"), &token, meeting).await;
 
@@ -144,9 +145,13 @@ async fn meetings_action_items_and_create_note() {
     let open = tool_json(&call("list_action_items", json!({})).await);
     let items = open["action_items"].as_array().unwrap();
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0]["item"]["text"], "Write release notes");
+    assert_eq!(items[0]["item"]["task"], "Write release notes");
     let all = tool_json(&call("list_action_items", json!({ "open_only": false })).await);
     assert_eq!(all["action_items"].as_array().unwrap().len(), 2);
+
+    let (_, resp) = rpc(&app, Some(&token), "resources/read", json!({ "uri": format!("flowstate://meetings/{id}") })).await;
+    let md = resp["result"]["contents"][0]["text"].as_str().unwrap();
+    assert!(md.contains("- [ ] Me: Write release notes (Thursday)\n- [x] Book room"), "{md}");
 
     let created = tool_json(&call("create_note", json!({ "title": "From Claude", "body": "Draft agenda" })).await);
     let note_id = created["id"].as_str().unwrap();

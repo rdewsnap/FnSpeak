@@ -436,9 +436,18 @@ fn meeting_markdown(m: &Meeting) -> String {
         if !items.is_empty() {
             out.push_str("\n## Action items\n\n");
             for item in items {
-                let text = item.get("text").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| {
-                    item.as_str().map(str::to_string).unwrap_or_else(|| item.to_string())
-                });
+                // The app stores {owner, task, due, done}; accept "text" and plain strings too.
+                let field = |k: &str| item.get(k).and_then(Value::as_str).filter(|s| !s.trim().is_empty());
+                let mut text = match field("task").or_else(|| field("text")) {
+                    Some(t) => t.to_string(),
+                    None => item.as_str().map(str::to_string).unwrap_or_else(|| item.to_string()),
+                };
+                if let Some(owner) = field("owner") {
+                    text = format!("{owner}: {text}");
+                }
+                if let Some(due) = field("due") {
+                    text = format!("{text} ({due})");
+                }
                 let _ = writeln!(out, "- [{}] {text}", if is_done(&item) { "x" } else { " " });
             }
         }

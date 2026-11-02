@@ -20,10 +20,10 @@ async fn fake_anthropic() -> (String, Seen) {
         post(move |headers: HeaderMap, Json(body): Json<Value>| {
             let log = log.clone();
             async move {
-                let summarizing = body["system"].as_str().unwrap_or("").contains("summarize meeting transcripts");
+                let summarizing = body["system"].as_str().unwrap_or("").contains("meeting notes from a transcript");
                 log.lock().unwrap().push((headers, body));
                 let text = if summarizing {
-                    "{\"summary_md\": \"Agreed to ship Friday.\", \"action_items\": [{\"text\": \"Tag the release\", \"owner\": \"Bo\", \"due\": null}]}"
+                    "## Summary\n- We agreed to ship Friday.\n\n## Decisions\n- Ship Friday.\n\n## Action items\n- [ ] Bo: Tag the release (Friday)\n\n## Open questions\n- None"
                 } else {
                     "Send it to Priya on Friday."
                 };
@@ -94,7 +94,7 @@ async fn cleanup_needs_a_signed_in_user() {
 
 #[tokio::test]
 async fn summarize_returns_summary_and_action_items() {
-    let (url, _) = fake_anthropic().await;
+    let (url, seen) = fake_anthropic().await;
     let app = app_with_llm(&url).await;
     let token = app.sign_in("sum@example.com").await;
 
@@ -102,12 +102,16 @@ async fn summarize_returns_summary_and_action_items() {
         .post(
             "/v1/summarize",
             &token,
-            json!({ "title": "Release sync", "participants": ["Ada", "Bo"], "transcript": "Ada: ship Friday. Bo: I'll tag it." }),
+            json!({ "title": "Release sync", "participants": ["Bo"],
+                    "transcript": "[00:00:01] Me: ship Friday?\n[00:00:04] Others: Bo here, I'll tag it." }),
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["summary_md"], "Agreed to ship Friday.");
-    assert_eq!(body["action_items"][0]["owner"], "Bo");
+    assert!(body["summary_md"].as_str().unwrap().starts_with("## Summary\n- We agreed"));
+    assert_eq!(body["action_items"], json!([{ "owner": "Bo", "task": "Tag the release", "due": "Friday", "done": false }]));
+    let seen = seen.lock().unwrap();
+    let sent = seen[0].1["messages"][0]["content"].as_str().unwrap();
+    assert!(sent.starts_with("<meeting>\nTitle: Release sync\nParticipants: Bo\nPerspective: the user took part"));
 }
 
 #[tokio::test]
