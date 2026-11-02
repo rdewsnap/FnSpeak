@@ -81,10 +81,16 @@ final class MeetingController: NSObject, ObservableObject {
             .store(in: &subscriptions)
     }
 
-    /// Starts the call detector once the app is up.
+    /// Starts the call detector and clears out old transcripts once the engine is up.
     func begin() {
         guard !began else { return }
         began = true
+        engine.$status
+            .filter { $0 == .ready }
+            .first()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.purgeOld() }
+            .store(in: &subscriptions)
         detector.start()
     }
 
@@ -337,6 +343,24 @@ final class MeetingController: NSObject, ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async {
             let value = (try? body(core)) ?? fallback
             DispatchQueue.main.async { completion(value) }
+        }
+    }
+
+    /// Deletes transcripts older than the retention setting.
+    private func purgeOld() {
+        let days = prefs.meetingRetentionDays
+        guard days > 0, let core else { return }
+        let cutoff = Int64(Date().timeIntervalSince1970) - Int64(days) * 86_400
+        DispatchQueue.global(qos: .utility).async {
+            let old = ((try? core.meetings(limit: 100_000)) ?? []).filter { $0.startedAt < cutoff && $0.status != .recording }
+            var removed: [Int64] = []
+            for meeting in old where (try? core.deleteMeeting(id: meeting.id)) == true { removed.append(meeting.id) }
+            guard !removed.isEmpty else { return }
+            DispatchQueue.main.async {
+                for id in removed { self.prefs.meetingActionItemsDone[String(id)] = nil }
+                self.revision += 1
+                Log.info("Deleted \(removed.count) meeting transcripts older than \(days) days")
+            }
         }
     }
 
