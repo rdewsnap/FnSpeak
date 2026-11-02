@@ -182,6 +182,7 @@ struct MeetingDetailView: View {
                 }
             }
             .help("Copy the summary and action items into Apple Notes")
+            ShareWithTeamMenu(kind: .meeting, localId: meeting.id).fixedSize()
             if let copied {
                 Text(copied).font(.callout).foregroundStyle(.secondary).transition(.opacity)
             }

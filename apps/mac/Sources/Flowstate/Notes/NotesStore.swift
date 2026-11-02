@@ -109,6 +109,9 @@ final class NotesStore: ObservableObject {
         }, completion: { completion(try? $0.get()) })
     }
 
+    /// Notes changed outside this store (a sync pulled some); reload views.
+    func reloadAfterSync() { revision += 1 }
+
     // MARK: - Private
 
     private func didChange(_ note: Note) {

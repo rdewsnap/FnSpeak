@@ -97,6 +97,7 @@ struct NoteEditorView: View {
                 Button { revealInFinder() } label: { Label("Reveal in Finder", systemImage: "folder") }
                     .help("Show the exported Markdown file in Finder")
             }
+            ShareWithTeamMenu(kind: .note, localId: note.id)
             Button(role: .destructive) { model.delete(note) } label: { Label("Delete", systemImage: "trash") }
                 .help("Delete note")
         }

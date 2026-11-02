@@ -251,6 +251,9 @@ final class MeetingController: NSObject, ObservableObject {
         }
     }
 
+    /// Meetings changed outside this controller (a sync pulled some); reload lists.
+    func reloadAfterSync() { revision += 1 }
+
     @objc func toggleMeeting() {
         isRecording ? stop() : requestStart()
     }

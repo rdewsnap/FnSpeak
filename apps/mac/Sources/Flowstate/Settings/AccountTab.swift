@@ -16,6 +16,7 @@ struct AccountTab: View {
             serverSection
             if account.isSignedIn {
                 signedInSection
+                SyncSettingsSection()
             } else {
                 signInSection
             }

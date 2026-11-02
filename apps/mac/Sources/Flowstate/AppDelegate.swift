@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine.load()
         hotkeys.start()
         meetings.begin()
+        MainActor.assumeIsolated { SyncEngine.shared.start(engine: engine, meetings: meetings) }
         // Contacts and Calendar prompts wait until onboarding is done.
         if prefs.onboarded { scheduleIndexing() }
     }
