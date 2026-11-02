@@ -16,6 +16,8 @@ final class Overlay {
         case error(String)
         /// Picked up a spelling from the user's edit; the pill offers Undo.
         case learned(String)
+        /// A meeting is being recorded; clicking opens its window.
+        case meeting(since: Date)
     }
 
     final class Model: ObservableObject {
@@ -24,6 +26,7 @@ final class Overlay {
         @Published var scale: CGFloat = 1
         @Published var alignment: Alignment = .bottom
         var undo: (() -> Void)?
+        var openMeeting: (() -> Void)?
     }
 
     private static let panelSize = NSSize(width: 460, height: 84)
@@ -32,6 +35,8 @@ final class Overlay {
     private let prefs = Preferences.shared
     private let model = Model()
     private var hideToken = 0
+    /// While set, the pill rests on the meeting state instead of hiding.
+    private var meetingSince: Date?
     private lazy var panel: NSPanel = {
         let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: Self.panelSize),
@@ -53,7 +58,7 @@ final class Overlay {
     /// Nothing in progress, so a toast won't cover anything.
     var isIdle: Bool {
         switch model.state {
-        case .hidden, .pasted, .message, .error, .learned: return true
+        case .hidden, .pasted, .message, .error, .learned, .meeting: return true
         case .listening, .working: return false
         }
     }
@@ -66,11 +71,28 @@ final class Overlay {
         show(.learned(text))
     }
 
+    func showMeeting(since: Date, onTap: @escaping () -> Void) {
+        meetingSince = since
+        model.openMeeting = onTap
+        show(.meeting(since: since))
+    }
+
+    func endMeeting() {
+        meetingSince = nil
+        model.openMeeting = nil
+        if case .meeting = model.state { show(.hidden) }
+    }
+
     func show(_ state: State) {
+        var state = state
+        if state == .hidden, let since = meetingSince { state = .meeting(since: since) }
         hideToken += 1
         let token = hideToken
         model.state = state
         if case .learned = state {
+            panel.ignoresMouseEvents = false
+        } else if case .meeting = state {
+            model.undo = nil
             panel.ignoresMouseEvents = false
         } else {
             model.undo = nil
@@ -195,6 +217,13 @@ private struct PillView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.white.opacity(0.6))
                 .underline()
+            case .meeting(let since):
+                Circle().fill(Color.red).frame(width: 8 * model.scale, height: 8 * model.scale)
+                TimelineView(.periodic(from: since, by: 1)) { context in
+                    Text(Duration.seconds(max(0, context.date.timeIntervalSince(since)))
+                        .formatted(.time(pattern: .minuteSecond(padMinuteToLength: 1))))
+                        .monospacedDigit()
+                }
             case .hidden:
                 EmptyView()
             }
@@ -205,6 +234,8 @@ private struct PillView: View {
         .padding(.vertical, 8 * model.scale)
         .background(Capsule().fill(Color.black.opacity(0.82)))
         .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+        .contentShape(Capsule())
+        .onTapGesture { model.openMeeting?() }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: model.alignment)
         .padding(.vertical, 12)
         .animation(.easeOut(duration: 0.12), value: model.state)
