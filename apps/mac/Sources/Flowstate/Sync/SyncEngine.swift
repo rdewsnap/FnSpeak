@@ -1,9 +1,10 @@
 import Combine
 import Foundation
 
-/// Keeps notes and meetings in step with the Flowstate server. Runs every
-/// minute and shortly after local changes, only while signed in and only
-/// when the user turned sync on.
+/// Keeps notes and meetings in step with the Flowstate server, and the
+/// team glossary in the vocabulary. Runs every minute and shortly after
+/// local changes, only while signed in, and only syncs notes and meetings
+/// when the user turned that on.
 ///
 /// Each run pulls what changed on the server since the last cursor, then
 /// pushes what changed here. The newest `updated_at` wins; deletions travel
@@ -26,6 +27,7 @@ final class SyncEngine: ObservableObject {
     private var subscriptions: Set<AnyCancellable> = []
     private var timer: Timer?
     private var rerun = false
+    private var appliedGlossary: [String]?
     /// Revisions this engine caused by importing, so they don't trigger another run.
     private var ownNotesRevision: Int?
     private var ownMeetingsRevision: Int?
@@ -91,12 +93,16 @@ final class SyncEngine: ObservableObject {
         Task { await sync() }
     }
 
-    /// Forget status. The id mapping stays on disk so signing in again
-    /// doesn't duplicate anything.
+    /// Forget status and drop the team's terms from the vocabulary. The id
+    /// mapping stays on disk so signing in again doesn't duplicate anything.
     private func signedOut() {
         lastSynced = nil
         lastError = nil
         state = nil
+        appliedGlossary = nil
+        if let core = engine?.core {
+            worker.async { _ = try? core.replaceTerms(source: .team, terms: []) }
+        }
     }
 
     // MARK: - Sharing
@@ -148,6 +154,12 @@ final class SyncEngine: ObservableObject {
         guard account.isSignedIn, let client = account.client, let engine, engine.isReady, let core = engine.core else { return }
         syncing = true
         do {
+            if prefs.syncGlossary {
+                try await pullGlossary(client, core)
+            } else if appliedGlossary != [] {
+                try await onWorker { _ = try core.replaceTerms(source: .team, terms: []) }
+                appliedGlossary = []
+            }
             if prefs.syncEnabled {
                 if (meetings?.phase ?? .idle) == .idle {
                     try await syncItems(client, core)
@@ -169,6 +181,15 @@ final class SyncEngine: ObservableObject {
             rerun = false
             requestSync()
         }
+    }
+
+    private func pullGlossary(_ client: ServerClient, _ core: FlowstateEngine) async throws {
+        var seen = Set<String>()
+        let terms = try await client.glossary().map(\.term).filter { seen.insert($0.lowercased()).inserted }.sorted()
+        guard terms != appliedGlossary else { return }
+        try await onWorker { _ = try core.replaceTerms(source: .team, terms: terms) }
+        appliedGlossary = terms
+        Log.info("Sync: \(terms.count) team glossary terms")
     }
 
     private struct Local {

@@ -41,6 +41,7 @@ struct VocabularyTab: View {
                             .buttonStyle(.borderless)
                             .help("Remove \(term.text)")
                     }
+                    .contextMenu { TeamGlossaryMenuItems(term: term.text) }
                 }
             }
             .overlay {

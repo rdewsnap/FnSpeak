@@ -17,6 +17,7 @@ struct AccountTab: View {
             if account.isSignedIn {
                 signedInSection
                 SyncSettingsSection()
+                TeamsSection()
             } else {
                 signInSection
             }
