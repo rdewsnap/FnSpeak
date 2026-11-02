@@ -59,6 +59,7 @@ final class MeetingController: NSObject, ObservableObject {
 
     private lazy var window = MeetingWindowController(controller: self)
     private lazy var listWindow = MeetingsListWindowController(controller: self)
+    private lazy var detector = MeetingDetector(controller: self)
 
     init(engine: EngineController, overlay: Overlay) {
         self.engine = engine
@@ -80,10 +81,11 @@ final class MeetingController: NSObject, ObservableObject {
             .store(in: &subscriptions)
     }
 
-    /// Called once the app is up and running.
+    /// Starts the call detector once the app is up.
     func begin() {
         guard !began else { return }
         began = true
+        detector.start()
     }
 
     private var core: FlowstateEngine? { engine.isReady ? engine.core : nil }
