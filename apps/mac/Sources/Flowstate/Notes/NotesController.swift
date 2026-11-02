@@ -12,6 +12,9 @@ final class NotesController: NSObject {
     private let prefs = Preferences.shared
     private let store = NotesStore.shared
     private var prefsObserver: AnyCancellable?
+    private var dictationObserver: AnyCancellable?
+    /// Dictations already kept as notes, so they aren't saved twice.
+    private var savedDictations = Set<UUID>()
     private lazy var window = NotesWindowController()
 
     /// Call once at launch.
@@ -27,6 +30,11 @@ final class NotesController: NSObject {
         prefsObserver = prefs.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.registerHotkey() }
+        dictationObserver = RecentDictations.shared.$items
+            .compactMap(\.first)
+            .removeDuplicates { $0.id == $1.id }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.dictated($0) }
     }
 
     /// Dictated text goes into the bar when it has focus. Returns false otherwise.
@@ -62,6 +70,12 @@ final class NotesController: NSObject {
         let open = NSMenuItem(title: "Notes…", action: #selector(openNotes), keyEquivalent: "")
         open.target = self
         menu.addItem(open)
+        let last = NSMenuItem(title: "Save last dictation as note", action: nil, keyEquivalent: "")
+        if let item = RecentDictations.shared.items.first, !savedDictations.contains(item.id) {
+            last.action = #selector(saveLastDictation)
+            last.target = self
+        }
+        menu.addItem(last)
         menu.addItem(.separator())
     }
 
@@ -88,5 +102,26 @@ final class NotesController: NSObject {
 
     @objc func openNotes() {
         window.show()
+    }
+
+    @objc func saveLastDictation() {
+        guard let item = RecentDictations.shared.items.first else { return }
+        save(item)
+    }
+
+    // MARK: - Dictation to note
+
+    /// With the setting on, long dictations are kept as notes as well.
+    private func dictated(_ item: RecentDictations.Item) {
+        guard prefs.saveDictationsAsNotes,
+              NoteText.wordCount(item.text) >= max(prefs.dictationNoteMinWords, 1) else { return }
+        save(item)
+    }
+
+    private func save(_ item: RecentDictations.Item) {
+        guard savedDictations.insert(item.id).inserted else { return }
+        store.create(text: item.text, source: .dictation) { [weak self] result in
+            if case .failure = result { self?.savedDictations.remove(item.id) }
+        }
     }
 }
