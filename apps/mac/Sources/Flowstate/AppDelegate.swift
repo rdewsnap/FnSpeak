@@ -11,7 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var indexer = PersonalIndexer(engine: engine)
 
     private var statusItem: NSStatusItem!
-    private var settingsWindow: NSWindow?
+    private var settingsController: SettingsWindowController?
     private var onboardingWindow: NSWindow?
 
     /// Captured when recording starts, so the text goes where the user was.
@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastInsert: (text: String, appId: String)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        MainMenu.install(target: self, settings: #selector(openSettings), about: #selector(openAbout))
         setUpStatusItem()
         recorder.onLevel = { [weak self] in self?.overlay.setLevel($0) }
         hotkeys.onStart = { [weak self] in self?.startRecording() }
@@ -119,16 +120,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettings() {
-        if settingsWindow == nil {
-            let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(engine: engine, indexer: indexer)))
-            window.title = "Flowstate Settings"
-            window.styleMask = [.titled, .closable]
-            window.isReleasedWhenClosed = false
-            settingsWindow = window
+        showSettings()
+    }
+
+    @objc private func openAbout() {
+        showSettings(tab: .about)
+    }
+
+    private func showSettings(tab: SettingsTab? = nil) {
+        if settingsController == nil {
+            settingsController = SettingsWindowController(engine: engine, indexer: indexer)
         }
-        NSApp.activate(ignoringOtherApps: true)
-        settingsWindow?.center()
-        settingsWindow?.makeKeyAndOrderFront(nil)
+        settingsController?.show(tab: tab)
     }
 
     private func showOnboarding() {
