@@ -11,6 +11,7 @@ enum MainMenu {
         app.addItem(withTitle: "About Flowstate", action: about, keyEquivalent: "").target = target
         app.addItem(.separator())
         app.addItem(withTitle: "Settings…", action: settings, keyEquivalent: ",").target = target
+        app.addItem(withTitle: "Meetings…", action: Selector(("showMeetings:")), keyEquivalent: "")
         app.addItem(.separator())
         app.addItem(withTitle: "Hide Flowstate", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         app.addItem(withTitle: "Quit Flowstate", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")

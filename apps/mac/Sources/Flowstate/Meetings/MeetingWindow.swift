@@ -287,6 +287,7 @@ private struct MeetingEmptyView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 360)
             HStack {
+                Button("Past meetings…") { controller.showList() }
                 Button("Start meeting") { controller.requestStart() }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)

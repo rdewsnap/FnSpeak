@@ -58,6 +58,7 @@ final class MeetingController: NSObject, ObservableObject {
     private var began = false
 
     private lazy var window = MeetingWindowController(controller: self)
+    private lazy var listWindow = MeetingsListWindowController(controller: self)
 
     init(engine: EngineController, overlay: Overlay) {
         self.engine = engine
@@ -368,7 +369,11 @@ final class MeetingController: NSObject, ObservableObject {
         window.show()
     }
 
-    /// "Start meeting…" or "Stop meeting".
+    @objc func showList() {
+        listWindow.show()
+    }
+
+    /// "Start meeting…" or "Stop meeting", and "Meetings…".
     func addMenuItems(to menu: NSMenu) {
         let toggle: NSMenuItem
         switch phase {
@@ -383,6 +388,9 @@ final class MeetingController: NSObject, ObservableObject {
         }
         toggle.target = self
         menu.addItem(toggle)
+        let list = NSMenuItem(title: "Meetings…", action: #selector(showList), keyEquivalent: "")
+        list.target = self
+        menu.addItem(list)
     }
 
     @objc private func showMeetingWindow() {

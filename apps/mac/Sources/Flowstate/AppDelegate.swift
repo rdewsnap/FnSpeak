@@ -229,6 +229,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showSettings()
     }
 
+    @objc func showMeetings(_ sender: Any?) {
+        meetings.showList()
+    }
+
     @objc private func openAbout() {
         showSettings(tab: .about)
     }
