@@ -1,0 +1,8 @@
+# BuildKit reads this instead of a root .dockerignore when building with
+# -f deploy/Dockerfile. Only the Rust workspace and prompts are needed.
+*
+!Cargo.toml
+!Cargo.lock
+!crates/
+!prompts/
+crates/**/target
