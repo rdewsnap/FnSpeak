@@ -24,6 +24,14 @@ enum TextInserter {
         }
     }
 
+    /// Press Return, e.g. to send a message after dictating it. The delay
+    /// lets the target app take in a paste first.
+    static func pressReturn(after delay: TimeInterval = 0.15) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            postKey(36, flags: []) // ↩
+        }
+    }
+
     /// Select the previous `count` characters and replace them with `text`.
     /// Used by the swap-to-raw shortcut right after a dictation.
     static func replacePrevious(_ count: Int, with text: String) {

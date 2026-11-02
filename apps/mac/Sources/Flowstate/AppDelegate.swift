@@ -161,9 +161,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             switch result {
             case .success(let dictation):
                 Log.info("Dictation ok: stt \(dictation.sttMs) ms, cleanup \(dictation.cleanupMs) ms (\(dictation.cleaner ?? "no model"))")
-                guard !dictation.insert.isEmpty else { return self.overlay.show(.hidden) }
+                let send = dictation.pressEnter && self.prefs.allowSendCommand
+                guard !dictation.insert.isEmpty else {
+                    // "Send it" on its own sends what's already typed.
+                    if send, !self.notes.bar.wantsDictation { TextInserter.pressReturn(after: 0) }
+                    return self.overlay.show(.hidden)
+                }
                 if self.notes.insertDictation(dictation.insert) { return self.overlay.show(.pasted) }
                 TextInserter.insert(dictation.insert, bundleId: context.appId)
+                if send { TextInserter.pressReturn() }
                 self.lastInsert = (dictation.insert, context.appId)
                 if self.prefs.learnFromCorrections { self.editWatcher.watch(dictation.insert) }
                 RecentDictations.shared.add(dictation.text)

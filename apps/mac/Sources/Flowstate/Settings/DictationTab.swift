@@ -29,6 +29,14 @@ struct DictationTab: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
 
+            Section("Spoken commands") {
+                Text("End a dictation with **scratch that** to drop the last sentence, or **new line** / **new paragraph** to add a break after the text. Pause before a command; in the middle of a sentence the words are typed as usual.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Toggle("Press Return when a dictation ends with “send it”", isOn: $prefs.allowSendCommand)
+                Text("“Send it” or “send that” after a pause inserts the text, then presses Return. In chat apps that sends the message right away, so it's off unless you want it.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+
             Section("Microphone") {
                 Picker("Input", selection: $prefs.microphoneId) {
                     Text("System default").tag("")

@@ -79,6 +79,8 @@ final class Preferences: ObservableObject {
     @Published var autoStopSeconds: Double { didSet { defaults.set(autoStopSeconds, forKey: "autoStopSeconds") } }
     /// An `AudioInput` id; empty is the system default.
     @Published var microphoneId: String { didSet { defaults.set(microphoneId, forKey: "microphoneId") } }
+    /// Ending a dictation with "send it" presses Return after the text.
+    @Published var allowSendCommand: Bool { didSet { defaults.set(allowSendCommand, forKey: "allowSendCommand") } }
 
     private init() {
         onboarded = defaults.bool(forKey: "onboarded")
@@ -115,6 +117,7 @@ final class Preferences: ObservableObject {
         autoStopEnabled = defaults.object(forKey: "autoStopEnabled") as? Bool ?? false
         autoStopSeconds = defaults.object(forKey: "autoStopSeconds") as? Double ?? 3
         microphoneId = defaults.string(forKey: "microphoneId") ?? ""
+        allowSendCommand = defaults.object(forKey: "allowSendCommand") as? Bool ?? false
     }
 
     func categoryStyle(_ category: AppCategory) -> WritingStyle {

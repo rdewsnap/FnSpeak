@@ -79,7 +79,10 @@ final class EngineController: ObservableObject {
             completion(.failure(FlowstateError.Setup("Speech model is still loading")))
             return
         }
+        // Read per dictation so the setting applies without a reload.
+        let send = prefs.allowSendCommand
         queue.async {
+            engine.setSendCommand(enabled: send)
             let result = Result { try engine.dictate(audio: audio, context: context) }
             DispatchQueue.main.async {
                 if case .success(let d) = result { self.lastDictation = d }
