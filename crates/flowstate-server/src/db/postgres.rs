@@ -10,6 +10,7 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     (2, "invites", include_str!("../../migrations/postgres/0002_invites.sql")),
     (3, "notes_meetings", include_str!("../../migrations/postgres/0003_notes_meetings.sql")),
     (4, "glossary", include_str!("../../migrations/postgres/0004_glossary.sql")),
+    // Version 5 is retired; number new migrations from 6.
 ];
 
 pub struct Postgres {

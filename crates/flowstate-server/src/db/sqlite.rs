@@ -9,6 +9,9 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/sqlite/0002_invites.sql"),
     include_str!("../../migrations/sqlite/0003_notes_meetings.sql"),
     include_str!("../../migrations/sqlite/0004_glossary.sql"),
+    // Slot 5 is retired. It stays as a no-op so `user_version` lines up
+    // with databases that ran it; new migrations go after it.
+    "",
 ];
 
 /// One connection behind a mutex. SQLite serializes writers anyway, and a
