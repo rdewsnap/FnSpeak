@@ -32,6 +32,7 @@ final class EngineController: ObservableObject {
             do {
                 let engine = try FlowstateEngine(config: config)
                 _ = try? engine.purgeHistory(olderThanDays: UInt32(max(self.prefs.historyDays, 1)))
+                Log.info("Engine ready (\(self.prefs.speechEngine), \(self.prefs.mode))")
                 DispatchQueue.main.async {
                     self.engine = engine
                     self.status = .ready
@@ -48,6 +49,7 @@ final class EngineController: ObservableObject {
                     }
                     return
                 }
+                Log.error("Engine failed to load: \(error.localizedDescription)")
                 DispatchQueue.main.async { self.status = .failed(error.localizedDescription) }
             }
         }
@@ -119,6 +121,24 @@ final class EngineController: ObservableObject {
         guard let engine else { return }
         queue.async {
             for c in corrections { _ = try? engine.forgetCorrection(heard: c.heard, corrected: c.corrected) }
+        }
+    }
+
+    /// Delete history older than `days` (0 deletes everything). Returns how many were removed.
+    func purgeHistory(olderThanDays days: Int, completion: @escaping (Int?) -> Void) {
+        guard let engine else { return completion(nil) }
+        queue.async {
+            let removed = try? engine.purgeHistory(olderThanDays: UInt32(max(days, 0)))
+            DispatchQueue.main.async { completion(removed.map(Int.init)) }
+        }
+    }
+
+    func clearVocabulary(completion: @escaping (Int) -> Void) {
+        guard let engine else { return completion(0) }
+        queue.async {
+            let all = (try? engine.terms()) ?? []
+            for term in all { _ = try? engine.removeTerm(term: term.text) }
+            DispatchQueue.main.async { completion(all.count) }
         }
     }
 

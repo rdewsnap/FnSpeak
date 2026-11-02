@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var silentSince: Date?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Log.info("Flowstate \(AppInfo.version) starting on macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
         MainMenu.install(target: self, settings: #selector(openSettings), about: #selector(openAbout))
         setUpStatusItem()
         applyPresentation()
@@ -105,6 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.phase = .idle
             switch result {
             case .success(let dictation):
+                Log.info("Dictation ok: stt \(dictation.sttMs) ms, cleanup \(dictation.cleanupMs) ms (\(dictation.cleaner ?? "no model"))")
                 guard !dictation.insert.isEmpty else { return self.overlay.show(.hidden) }
                 TextInserter.insert(dictation.insert, bundleId: context.appId)
                 self.lastInsert = (dictation.insert, context.appId)
@@ -112,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 RecentDictations.shared.add(dictation.text)
                 self.overlay.show(.pasted)
             case .failure(let error):
+                Log.error("Dictation failed: \(error.localizedDescription)")
                 self.overlay.show(.error(Overlay.reason(for: error)))
             }
         }

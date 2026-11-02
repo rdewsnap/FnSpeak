@@ -38,6 +38,8 @@ final class Preferences: ObservableObject {
     /// Bundle id → `ax` or `type`, for apps where pasting doesn't work.
     @Published var insertionOverrides: [String: String] { didSet { defaults.set(insertionOverrides, forKey: "insertionOverrides") } }
 
+    /// `error`, `info` or `debug`.
+    @Published var logLevel: String { didSet { defaults.set(logLevel, forKey: "logLevel") } }
     /// Bundle ids where Flowstate neither listens nor reads context.
     @Published var excludedApps: [String] { didSet { defaults.set(excludedApps, forKey: "excludedApps") } }
     @Published var readFocusedField: Bool { didSet { defaults.set(readFocusedField, forKey: "readFocusedField") } }
@@ -91,6 +93,7 @@ final class Preferences: ObservableObject {
         historyDays = defaults.object(forKey: "historyDays") as? Int ?? 30
         learnFromCorrections = defaults.object(forKey: "learnFromCorrections") as? Bool ?? true
         insertionOverrides = defaults.dictionary(forKey: "insertionOverrides") as? [String: String] ?? [:]
+        logLevel = defaults.string(forKey: "logLevel") ?? "info"
         excludedApps = defaults.stringArray(forKey: "excludedApps") ?? []
         readFocusedField = defaults.object(forKey: "readFocusedField") as? Bool ?? true
         categoryStyles = defaults.dictionary(forKey: "categoryStyles") as? [String: String] ?? [:]
