@@ -89,7 +89,10 @@ final class MeetingController: NSObject, ObservableObject {
             .filter { $0 == .ready }
             .first()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.purgeOld() }
+            .sink { [weak self] _ in
+                self?.migrateActionItemsDone()
+                self?.purgeOld()
+            }
             .store(in: &subscriptions)
         detector.start()
     }
@@ -287,7 +290,6 @@ final class MeetingController: NSObject, ObservableObject {
                 if case .failure(let error) = result { self.error = Self.message(for: error) }
                 let deleted = (try? result.get()) ?? false
                 if deleted {
-                    self.prefs.meetingActionItemsDone[String(id)] = nil
                     if self.finished?.id == id { self.finished = nil }
                     self.revision += 1
                 }
@@ -357,28 +359,59 @@ final class MeetingController: NSObject, ObservableObject {
             for meeting in old where (try? core.deleteMeeting(id: meeting.id)) == true { removed.append(meeting.id) }
             guard !removed.isEmpty else { return }
             DispatchQueue.main.async {
-                for id in removed { self.prefs.meetingActionItemsDone[String(id)] = nil }
                 self.revision += 1
                 Log.info("Deleted \(removed.count) meeting transcripts older than \(days) days")
             }
         }
     }
 
-    // MARK: - Action items
+    // MARK: - Editing
 
-    /// Done in Flowstate, or done according to the summary when never ticked here.
-    func isDone(_ item: ActionItem, in meeting: Meeting) -> Bool {
-        guard let ticked = prefs.meetingActionItemsDone[String(meeting.id)] else { return item.done }
-        return ticked.contains(item.task)
+    func rename(_ id: Int64, to title: String, completion: @escaping (Result<Meeting, Error>) -> Void) {
+        edit(completion) { try $0.renameMeeting(id: id, title: title) }
     }
 
-    func setDone(_ done: Bool, _ item: ActionItem, in meeting: Meeting) {
-        let key = String(meeting.id)
-        var ticked = prefs.meetingActionItemsDone[key]
-            ?? meeting.actionItems.filter(\.done).map(\.task)
-        ticked.removeAll { $0 == item.task }
-        if done { ticked.append(item.task) }
-        prefs.meetingActionItemsDone[key] = ticked
+    func setParticipants(_ id: Int64, _ names: [String], completion: @escaping (Result<Meeting, Error>) -> Void) {
+        edit(completion) { try $0.updateMeetingParticipants(id: id, participants: names) }
+    }
+
+    func setActionItem(_ index: Int, done: Bool, in id: Int64, completion: @escaping (Result<Meeting, Error>) -> Void) {
+        edit(completion) { try $0.setActionItemDone(meetingId: id, index: UInt32(index), done: done) }
+    }
+
+    private func edit(_ completion: @escaping (Result<Meeting, Error>) -> Void, _ body: @escaping (FlowstateEngine) throws -> Meeting) {
+        guard let core = engine.core else { return completion(.failure(FlowstateError.Meeting("Flowstate is still starting up"))) }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try body(core) }
+            DispatchQueue.main.async {
+                if case .success(let meeting) = result {
+                    if self.finished?.id == meeting.id { self.finished = meeting }
+                    self.revision += 1
+                }
+                completion(result)
+            }
+        }
+    }
+
+    /// Action items used to be ticked off in UserDefaults (meeting id → done
+    /// tasks). Move them into the meetings once, then forget them.
+    private func migrateActionItemsDone() {
+        let key = "meetingActionItemsDone"
+        guard let legacy = UserDefaults.standard.dictionary(forKey: key) as? [String: [String]], let core else { return }
+        DispatchQueue.global(qos: .utility).async {
+            for (idText, ticked) in legacy {
+                guard let id = Int64(idText), let meeting = try? core.meeting(id: id) else { continue }
+                for (index, item) in meeting.actionItems.enumerated() {
+                    let done = ticked.contains(item.task)
+                    if done != item.done { _ = try? core.setActionItemDone(meetingId: id, index: UInt32(index), done: done) }
+                }
+            }
+            DispatchQueue.main.async {
+                UserDefaults.standard.removeObject(forKey: key)
+                self.revision += 1
+                Log.info("Moved ticked action items for \(legacy.count) meetings into the meetings database")
+            }
+        }
     }
 
     // MARK: - Windows and menu

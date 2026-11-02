@@ -10,6 +10,10 @@ struct MeetingDetailView: View {
     @State private var confirmDelete = false
     @State private var copied: String?
     @State private var problem: String?
+    @State private var title = ""
+    @State private var editingParticipants = false
+    @State private var participantsText = ""
+    @FocusState private var titleFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,7 +33,10 @@ struct MeetingDetailView: View {
             Divider()
             actions.padding(12)
         }
-        .task(id: meeting.id) { loadSegmentsIfNeeded() }
+        .task(id: meeting.id) {
+            title = meeting.title
+            loadSegmentsIfNeeded()
+        }
         .confirmationDialog("Delete “\(meeting.title)”?", isPresented: $confirmDelete) {
             Button("Delete meeting", role: .destructive) { controller.delete(meeting.id) { _ in } }
         } message: {
@@ -41,10 +48,40 @@ struct MeetingDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(meeting.title).font(.title2.weight(.semibold)).textSelection(.enabled)
+            TextField("Title", text: $title)
+                .textFieldStyle(.plain)
+                .font(.title2.weight(.semibold))
+                .focused($titleFocused)
+                .onSubmit(commitTitle)
+                .onChange(of: titleFocused) { if !titleFocused { commitTitle() } }
+                .help("Click to rename")
             Text(subtitle).font(.callout).foregroundStyle(.secondary)
-            MeetingParticipants(names: meeting.participants)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                MeetingParticipants(names: meeting.participants)
+                Button(meeting.participants.isEmpty ? "Add participants" : "Edit") {
+                    participantsText = meeting.participants.joined(separator: ", ")
+                    editingParticipants = true
+                }
+                .buttonStyle(.link)
+                .font(.callout)
+                .popover(isPresented: $editingParticipants, arrowEdge: .bottom) { participantsEditor }
+            }
         }
+    }
+
+    private var participantsEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Participants").font(.headline)
+            TextField("Names, separated by commas", text: $participantsText)
+                .frame(width: 280)
+                .onSubmit(commitParticipants)
+            HStack {
+                Spacer()
+                Button("Cancel") { editingParticipants = false }
+                Button("Save", action: commitParticipants).keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(14)
     }
 
     private var subtitle: String {
@@ -83,15 +120,15 @@ struct MeetingDetailView: View {
         if !meeting.actionItems.isEmpty {
             GroupBox {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(meeting.actionItems.enumerated()), id: \.offset) { _, item in
+                    ForEach(Array(meeting.actionItems.enumerated()), id: \.offset) { index, item in
                         Toggle(isOn: Binding(
-                            get: { controller.isDone(item, in: meeting) },
-                            set: { controller.setDone($0, item, in: meeting) }
+                            get: { item.done },
+                            set: { setDone($0, at: index) }
                         )) {
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(item.task)
-                                    .strikethrough(controller.isDone(item, in: meeting))
-                                    .foregroundStyle(controller.isDone(item, in: meeting) ? .secondary : .primary)
+                                    .strikethrough(item.done)
+                                    .foregroundStyle(item.done ? .secondary : .primary)
                                 let detail = [item.owner, item.due.map { "due \($0)" }].compactMap { $0 }
                                 if !detail.isEmpty {
                                     Text(detail.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
@@ -169,9 +206,45 @@ struct MeetingDetailView: View {
         }
     }
 
+    private func commitTitle() {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { title = meeting.title; return }
+        guard trimmed != meeting.title else { return }
+        controller.rename(meeting.id, to: trimmed) { result in apply(result) }
+    }
+
+    private func commitParticipants() {
+        editingParticipants = false
+        let names = participantsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard names != meeting.participants else { return }
+        controller.setParticipants(meeting.id, names) { result in apply(result) }
+    }
+
+    private func setDone(_ done: Bool, at index: Int) {
+        guard meeting.actionItems.indices.contains(index) else { return }
+        // Tick right away; the stored meeting comes back a moment later.
+        meeting.actionItems[index].done = done
+        controller.setActionItem(index, done: done, in: meeting.id) { result in apply(result) }
+    }
+
+    /// Take an edited meeting from the core, keeping the segments already loaded.
+    private func apply(_ result: Result<Meeting, Error>) {
+        switch result {
+        case .success(var updated):
+            guard updated.id == meeting.id else { return }
+            if updated.segments.isEmpty { updated.segments = meeting.segments }
+            meeting = updated
+            title = updated.title
+        case .failure(let error):
+            problem = MeetingController.message(for: error)
+            title = meeting.title
+            loadSegmentsIfNeeded(force: true)
+        }
+    }
+
     /// Meetings from the list come without their segments.
-    private func loadSegmentsIfNeeded() {
-        guard meeting.segments.isEmpty else { return }
+    private func loadSegmentsIfNeeded(force: Bool = false) {
+        guard force || meeting.segments.isEmpty else { return }
         let id = meeting.id
         controller.meeting(id: id) { full in
             if let full, full.id == meeting.id { meeting = full }

@@ -315,10 +315,4 @@ extension Preferences {
         get { defaults.object(forKey: "meetingRetentionDays") as? Int ?? 0 }
         set { objectWillChange.send(); defaults.set(newValue, forKey: "meetingRetentionDays") }
     }
-
-    /// Meeting id → tasks of the action items ticked off in Flowstate.
-    var meetingActionItemsDone: [String: [String]] {
-        get { defaults.dictionary(forKey: "meetingActionItemsDone") as? [String: [String]] ?? [:] }
-        set { objectWillChange.send(); defaults.set(newValue, forKey: "meetingActionItemsDone") }
-    }
 }
