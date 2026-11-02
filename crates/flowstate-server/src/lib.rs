@@ -72,7 +72,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/sync", get(sync::pull).post(sync::push))
         .route("/v1/search", get(sync::search))
         .route("/v1/cleanup", post(llm::cleanup))
-        .route("/v1/summarize", post(llm::summarize));
+        .route("/v1/summarize", post(llm::summarize))
+        .route("/v1/chat/completions", post(llm::chat_completions));
 
     let mcp = Router::new()
         .route_service("/mcp", mcp::service(state.clone()))

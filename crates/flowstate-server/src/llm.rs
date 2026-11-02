@@ -224,20 +224,74 @@ pub async fn cleanup(
     if req.transcript.chars().count() > MAX_DICTATION_CHARS {
         return Err(ApiError::bad("transcript is too long for cleanup"));
     }
-    let user_message = cleanup_message(&req);
-    let call = Call {
-        model: &llm.model,
-        system: CLEANUP_PROMPT,
-        user: &user_message,
-        max_tokens: CLEANUP_MAX_TOKENS,
-        effort: Effort::Low,
-        timeout: CLEANUP_TIMEOUT,
-    };
-    let out = complete(&state.http, llm, call).await?;
+    let out = run_cleanup(&state, llm, &cleanup_message(&req)).await?;
     Ok(Json(json!({
         "text": tidy(&out.text),
         "model": llm.model,
         "usage": { "input_tokens": out.input_tokens, "output_tokens": out.output_tokens },
+    })))
+}
+
+async fn run_cleanup(state: &AppState, llm: &LlmConfig, user_message: &str) -> ApiResult<Completion> {
+    let call = Call {
+        model: &llm.model,
+        system: CLEANUP_PROMPT,
+        user: user_message,
+        max_tokens: CLEANUP_MAX_TOKENS,
+        effort: Effort::Low,
+        timeout: CLEANUP_TIMEOUT,
+    };
+    complete(&state.http, llm, call).await
+}
+
+#[derive(Deserialize)]
+pub struct ChatMessage {
+    role: String,
+    #[serde(default)]
+    content: Value,
+}
+
+#[derive(Deserialize)]
+pub struct ChatRequest {
+    messages: Vec<ChatMessage>,
+}
+
+/// `POST /v1/chat/completions`: the request shape the app's existing
+/// OpenAI-compatible cloud mode sends, so it can use this server as is.
+/// Only cleanup is served: the client's system prompt and model are
+/// ignored and replaced with the server's, so this isn't a general proxy.
+pub async fn chat_completions(
+    State(state): State<AppState>,
+    _user: AuthUser,
+    Json(req): Json<ChatRequest>,
+) -> ApiResult<Json<Value>> {
+    let llm = llm_config(&state)?;
+    let user_message = req
+        .messages
+        .iter()
+        .rev()
+        .find(|m| m.role == "user")
+        .and_then(|m| m.content.as_str())
+        .ok_or_else(|| ApiError::bad("expected a user message with text content"))?;
+    if user_message.chars().count() > MAX_DICTATION_CHARS + 4_000 {
+        return Err(ApiError::bad("message is too long for cleanup"));
+    }
+    let out = run_cleanup(&state, llm, user_message).await?;
+    Ok(Json(json!({
+        "id": format!("fs-{}", crate::db::new_id()),
+        "object": "chat.completion",
+        "created": crate::db::now_ms() / 1000,
+        "model": llm.model,
+        "choices": [{
+            "index": 0,
+            "message": { "role": "assistant", "content": tidy(&out.text) },
+            "finish_reason": "stop",
+        }],
+        "usage": {
+            "prompt_tokens": out.input_tokens,
+            "completion_tokens": out.output_tokens,
+            "total_tokens": out.input_tokens + out.output_tokens,
+        },
     })))
 }
 
