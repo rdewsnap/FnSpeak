@@ -379,3 +379,49 @@ extension Preferences {
         set { objectWillChange.send(); defaults.set(newValue, forKey: "urlCommandsEnabled") }
     }
 }
+
+// MARK: - Account and sync
+
+extension Preferences {
+    /// Keychain account holding the server's API token.
+    static let accountKeychainAccount = "flowstate"
+
+    /// The Flowstate server: Flowstate Cloud unless the user picked their own.
+    var serverURL: String {
+        get { defaults.string(forKey: "serverURL") ?? ServerClient.cloudURL }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "serverURL") }
+    }
+
+    /// `<server>/v1`, the root the cleanup provider talks to.
+    var serverAPIBase: String {
+        (ServerClient.normalize(serverURL)?.absoluteString ?? serverURL) + "/v1"
+    }
+
+    var accountEmail: String? {
+        get { defaults.string(forKey: "accountEmail") }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "accountEmail") }
+    }
+
+    var accountUserId: String? {
+        get { defaults.string(forKey: "accountUserId") }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "accountUserId") }
+    }
+
+    /// The server's id for this Mac's token, so signing out can revoke it.
+    var accountTokenId: String? {
+        get { defaults.string(forKey: "accountTokenId") }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "accountTokenId") }
+    }
+
+    /// Sync notes and meetings with the server. Off until the user turns it on.
+    var syncEnabled: Bool {
+        get { defaults.object(forKey: "syncEnabled") as? Bool ?? false }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "syncEnabled") }
+    }
+
+    /// Pull the team glossary into the vocabulary while signed in.
+    var syncGlossary: Bool {
+        get { defaults.object(forKey: "syncGlossary") as? Bool ?? true }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "syncGlossary") }
+    }
+}
