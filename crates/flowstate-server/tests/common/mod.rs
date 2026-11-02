@@ -21,7 +21,17 @@ impl TestApp {
         Self::with_config(Config::for_tests()).await
     }
 
-    pub async fn with_config(config: Config) -> TestApp {
+    /// Tests run on in-memory SQLite. Set FLOWSTATE_TEST_POSTGRES_URL to a
+    /// Postgres server (and build with `--features postgres`) to run them
+    /// there instead, each test in a fresh database.
+    pub async fn with_config(mut config: Config) -> TestApp {
+        if let Ok(server) = std::env::var("FLOWSTATE_TEST_POSTGRES_URL") {
+            let admin = flowstate_server::db::Db::connect(&server).await.expect("connect to test Postgres");
+            let name = format!("flowstate_test_{}", uuid::Uuid::now_v7().simple());
+            admin.query(&format!("CREATE DATABASE {name}"), vec![]).await.expect("create test database");
+            let base = server.rsplit_once('/').map(|(b, _)| b).unwrap_or(&server);
+            config.database_url = format!("{base}/{name}");
+        }
         let (mailer, outbox) = Mailer::memory();
         let state = AppState::new(config, mailer).await.expect("app state");
         TestApp { router: router(state.clone()), state, outbox }
