@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  rust:
+    name: Rust (clippy + tests)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # `cargo fmt --check` is left out until the tree is rustfmt-clean.
+      # Whisper, Parakeet and the `mac` feature need large native builds and
+      # are covered by release builds instead.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --workspace
+
+  swift:
+    name: Mac app (no speech engines)
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The Swift target only links libflowstate_ffi. The sherpa/onnxruntime
+      # dylibs are runtime-only, so the app type-checks and links without the
+      # `mac` feature (the generated UniFFI surface is identical).
+      - name: Build Rust core, bindings and Swift app
+        run: scripts/build-mac.sh --skip-bundle --features ""
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image if the repo has one
+        run: |
+          if [ -f deploy/Dockerfile ]; then
+            docker build -f deploy/Dockerfile .
+          else
+            echo "no deploy/Dockerfile yet, nothing to build"
+          fi
