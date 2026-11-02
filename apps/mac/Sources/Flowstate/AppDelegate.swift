@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Captured when recording starts, so the text goes where the user was.
     private var pendingContext: Context?
     private var lastInsert: (text: String, appId: String)?
+    private var started = false
     private var heardSpeech = false
     private var silentSince: Date?
 
@@ -47,8 +48,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func begin() {
+        guard !started else { return }
+        started = true
         engine.load()
         hotkeys.start()
+        // Contacts and Calendar prompts wait until onboarding is done.
+        if prefs.onboarded { scheduleIndexing() }
+    }
+
+    private func scheduleIndexing() {
         // Index once the engine has its databases open.
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.indexer.indexAll() }
     }
@@ -215,10 +223,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showOnboarding() {
-        let view = OnboardingView(hardware: detectHardware()) { [weak self] in
-            self?.onboardingWindow?.close()
-            self?.begin()
-        }
+        let view = OnboardingView(
+            engine: engine,
+            hardware: detectHardware(),
+            prepare: { [weak self] in self?.prepareForTryIt(mode: $0) },
+            onDone: { [weak self] in
+                self?.onboardingWindow?.close()
+                self?.begin()
+                self?.scheduleIndexing()
+            }
+        )
         let window = NSWindow(contentViewController: NSHostingController(rootView: view))
         window.title = "Flowstate"
         window.styleMask = [.titled, .closable]
@@ -227,6 +241,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         window.center()
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// The try-it step needs a running engine and hotkey before onboarding is done.
+    private func prepareForTryIt(mode: String) {
+        let changed = prefs.mode != mode
+        prefs.mode = mode
+        if started {
+            if changed { engine.reconfigureCleanup() }
+        } else {
+            begin()
+        }
     }
 
     @objc private func setMode(_ sender: NSMenuItem) {
