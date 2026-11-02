@@ -319,3 +319,48 @@ extension Preferences {
         set { objectWillChange.send(); defaults.set(newValue, forKey: "meetingRetentionDays") }
     }
 }
+
+// MARK: - Integrations
+
+extension Preferences {
+    /// Where webhook events are posted. Empty is off.
+    var webhookURL: String {
+        get { defaults.string(forKey: "webhookURL") ?? "" }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "webhookURL") }
+    }
+
+    /// Signs webhook bodies. Kept in the Keychain.
+    var webhookSecret: String? {
+        get { Keychain.read(account: "webhook-secret") }
+        set {
+            if let newValue, !newValue.isEmpty {
+                Keychain.write(newValue, account: "webhook-secret")
+            } else {
+                Keychain.delete(account: "webhook-secret")
+            }
+            objectWillChange.send()
+        }
+    }
+
+    /// Webhook events that are switched off; all are on by default.
+    var webhookDisabledEvents: [String] {
+        get { defaults.stringArray(forKey: "webhookDisabledEvents") ?? [] }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "webhookDisabledEvents") }
+    }
+
+    func webhookEnabled(_ event: Webhook.Event) -> Bool {
+        Webhook.endpoint != nil && !webhookDisabledEvents.contains(event.rawValue)
+    }
+
+    /// Add a summary and a link to the meeting's calendar event when it ends.
+    var calendarAppendSummary: Bool {
+        get { defaults.object(forKey: "calendarAppendSummary") as? Bool ?? false }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "calendarAppendSummary") }
+    }
+
+    /// Save every finished meeting as Markdown in `meetingExportFolder`.
+    var meetingAutoExport: Bool {
+        get { defaults.object(forKey: "meetingAutoExport") as? Bool ?? false }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "meetingAutoExport") }
+    }
+}

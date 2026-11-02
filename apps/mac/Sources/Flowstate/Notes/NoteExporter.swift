@@ -3,7 +3,7 @@ import Foundation
 /// Mirrors notes into a folder as Markdown files with YAML front matter, so
 /// Obsidian and other Markdown tools can read them. Files are named
 /// `<title>-<id>.md`; the id keeps the name unique and lets a renamed note
-/// replace its old file.
+/// replace its old file. Finished meetings can be saved the same way.
 enum NoteExporter {
     /// The export folder from settings, or nil when exporting is off.
     static var folder: URL? {
@@ -56,6 +56,57 @@ enum NoteExporter {
         lines.append("")
         let body = note.bodyMd.trimmingCharacters(in: .whitespacesAndNewlines)
         return lines.joined(separator: "\n") + "\n" + body + "\n"
+    }
+
+    // MARK: - Meetings
+
+    /// Where finished meetings are saved automatically, or nil when that's off.
+    static var meetingFolder: URL? {
+        let prefs = Preferences.shared
+        guard prefs.meetingAutoExport else { return nil }
+        let path = prefs.meetingExportFolder
+        return path.isEmpty ? nil : URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
+    }
+
+    /// `<date> <title>-meeting-<id>.md`; like notes, the id lets a renamed
+    /// meeting replace its old file.
+    static func fileName(for meeting: Meeting) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(meeting.startedAt))
+        return "\(date.formatted(.iso8601.year().month().day())) \(safeTitle(meeting.title))-meeting-\(meeting.id).md"
+    }
+
+    /// Write a meeting's Markdown (from the core's export) with front matter.
+    @discardableResult
+    static func write(_ meeting: Meeting, markdown: String, to folder: URL) throws -> URL {
+        let fm = FileManager.default
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent(fileName(for: meeting))
+        try document(for: meeting, markdown: markdown).write(to: url, atomically: true, encoding: .utf8)
+        let suffix = "-meeting-\(meeting.id).md"
+        let names = (try? fm.contentsOfDirectory(atPath: folder.path)) ?? []
+        for name in names where name.hasSuffix(suffix) && name != url.lastPathComponent {
+            try? fm.removeItem(at: folder.appendingPathComponent(name))
+        }
+        return url
+    }
+
+    static func document(for meeting: Meeting, markdown: String) -> String {
+        var lines = ["---"]
+        lines.append("title: \(quoted(meeting.title.isEmpty ? "Meeting" : meeting.title))")
+        lines.append("date: \(timestamp(meeting.startedAt))")
+        if let end = meeting.endedAt { lines.append("ended: \(timestamp(end))") }
+        if meeting.participants.isEmpty {
+            lines.append("participants: []")
+        } else {
+            lines.append("participants:")
+            lines += meeting.participants.map { "  - \(quoted($0))" }
+        }
+        lines.append("tags:")
+        lines.append("  - \"meeting\"")
+        lines.append("flowstate_meeting_id: \(meeting.id)")
+        lines.append("---")
+        lines.append("")
+        return lines.joined(separator: "\n") + "\n" + markdown.trimmingCharacters(in: .whitespacesAndNewlines) + "\n"
     }
 
     // MARK: - Private

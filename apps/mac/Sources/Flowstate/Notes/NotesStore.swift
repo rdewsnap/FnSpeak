@@ -33,14 +33,20 @@ final class NotesStore: ObservableObject {
 
     func create(_ input: NoteInput, completion: ((Result<Note, Error>) -> Void)? = nil) {
         run({ try $0.createNote(note: input) }) { [weak self] result in
-            if case .success(let note) = result { self?.didChange(note) }
+            if case .success(let note) = result {
+                self?.didChange(note)
+                Integrations.noteCreated(note)
+            }
             completion?(result)
         }
     }
 
     func update(id: Int64, _ input: NoteInput, completion: ((Result<Note, Error>) -> Void)? = nil) {
         run({ try $0.updateNote(id: id, note: input) }) { [weak self] result in
-            if case .success(let note) = result { self?.didChange(note) }
+            if case .success(let note) = result {
+                self?.didChange(note)
+                Integrations.noteUpdated(note)
+            }
             completion?(result)
         }
     }

@@ -233,10 +233,12 @@ final class MeetingController: NSObject, ObservableObject {
                 case .success(let meeting):
                     self.finished = meeting
                     Log.info("Meeting \(meeting.id) summarized")
+                    Integrations.meetingFinished(meeting, core: core)
                 case .failure(let error):
                     self.error = Self.message(for: error)
                     self.finished = fallback ?? nil
                     Log.error("Meeting finish failed: \(error.localizedDescription)")
+                    if let fallback = fallback ?? nil { Integrations.meetingFinished(fallback, core: core) }
                 }
                 self.current = nil
                 self.startedAt = nil
@@ -307,8 +309,11 @@ final class MeetingController: NSObject, ObservableObject {
         let note = NoteInput(title: "\(meeting.title) — note at \(stamp)", bodyMd: body, source: .meeting,
                              meetingId: meeting.id, tags: ["meeting"], pinned: false)
         DispatchQueue.global(qos: .userInitiated).async {
-            let ok = (try? core.createNote(note: note)) != nil
-            DispatchQueue.main.async { completion(ok) }
+            let saved = try? core.createNote(note: note)
+            DispatchQueue.main.async {
+                if let saved { Integrations.noteCreated(saved) }
+                completion(saved != nil)
+            }
         }
     }
 
