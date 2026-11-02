@@ -19,3 +19,6 @@ apps/mac/.rust-libs/
 apps/mac/Sources/Flowstate/Generated/
 apps/mac/Sources/flowstate_ffiFFI/
 /bench/manifest.tts.jsonl
+
+# Local business notes, not part of the project
+business/
