@@ -38,6 +38,10 @@ final class Preferences: ObservableObject {
     /// Bundle id → `ax` or `type`, for apps where pasting doesn't work.
     @Published var insertionOverrides: [String: String] { didSet { defaults.set(insertionOverrides, forKey: "insertionOverrides") } }
 
+    /// Dictation is switched off from the menu. Deliberately not saved: it
+    /// resets on relaunch so a forgotten pause can't linger.
+    @Published var paused = false
+
     // MARK: General
 
     @Published var showInMenuBar: Bool { didSet { defaults.set(showInMenuBar, forKey: "showInMenuBar") } }

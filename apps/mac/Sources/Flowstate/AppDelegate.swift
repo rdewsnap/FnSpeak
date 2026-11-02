@@ -16,6 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboardingWindow: NSWindow?
     private var prefsObserver: AnyCancellable?
 
+    private enum Phase { case idle, listening, processing }
+    private var phase = Phase.idle { didSet { updateStatusIcon() } }
+
     /// Captured when recording starts, so the text goes where the user was.
     private var pendingContext: Context?
     private var lastInsert: (text: String, appId: String)?
@@ -52,6 +55,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startRecording() -> Bool {
         // Whatever the user did to the last dictation, they're done with it.
         editWatcher.finish()
+        guard !prefs.paused else {
+            overlay.show(.message("Dictation is paused"))
+            return false
+        }
         guard AudioRecorder.hasPermission else {
             overlay.show(.error("Microphone access is off"))
             return false
@@ -60,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             try recorder.start()
             Sounds.start()
+            phase = .listening
             overlay.show(.listening(handsFree: prefs.triggerStyle == "toggle"))
             return true
         } catch {
@@ -71,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func finishRecording() {
         let audio = recorder.stop()
         Sounds.stop()
+        phase = .idle
         guard let context = pendingContext else { return overlay.show(.hidden) }
         pendingContext = nil
         // Under ~0.3 s there's nothing to transcribe.
@@ -81,14 +90,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         overlay.show(.working)
+        phase = .processing
         engine.dictate(audio, context: context) { [weak self] result in
             guard let self else { return }
+            self.phase = .idle
             switch result {
             case .success(let dictation):
                 guard !dictation.insert.isEmpty else { return self.overlay.show(.hidden) }
                 TextInserter.insert(dictation.insert, bundleId: context.appId)
                 self.lastInsert = (dictation.insert, context.appId)
                 if self.prefs.learnFromCorrections { self.editWatcher.watch(dictation.insert) }
+                RecentDictations.shared.add(dictation.text)
                 self.overlay.show(.pasted)
             case .failure(let error):
                 self.overlay.show(.error(Overlay.reason(for: error)))
@@ -98,6 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func cancelRecording() {
         recorder.stop()
+        phase = .idle
         pendingContext = nil
         overlay.show(.hidden)
     }
@@ -126,6 +139,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.isVisible = prefs.showInMenuBar || !prefs.showInDock
         let policy: NSApplication.ActivationPolicy = prefs.showInDock ? .regular : .accessory
         if NSApp.activationPolicy() != policy { NSApp.setActivationPolicy(policy) }
+        updateStatusIcon()
+    }
+
+    private func updateStatusIcon() {
+        let (symbol, label): (String, String)
+        if prefs.paused {
+            (symbol, label) = ("mic.slash", "Flowstate (paused)")
+        } else {
+            switch phase {
+            case .idle: (symbol, label) = ("waveform", "Flowstate")
+            case .listening: (symbol, label) = ("mic.fill", "Flowstate (listening)")
+            case .processing: (symbol, label) = ("ellipsis.circle", "Flowstate (working)")
+            }
+        }
+        statusItem.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -177,8 +205,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine.reconfigureCleanup()
     }
 
+    @objc private func togglePause() {
+        prefs.paused.toggle()
+    }
+
+    @objc private func copyRecent(_ sender: NSMenuItem) {
+        guard let text = sender.representedObject as? String else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    @objc private func clearRecents() {
+        RecentDictations.shared.clear()
+    }
+
     @objc private func quit() {
         NSApp.terminate(nil)
+    }
+
+    /// The Dock icon's menu is the same as the menu bar's.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        menu.delegate = self
+        return menu
     }
 }
 
@@ -186,13 +235,14 @@ extension AppDelegate: NSMenuDelegate {
     /// Rebuilt on open so it always reflects the current state.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        let key = prefs.hotkey.displayName
         let status: String
         switch engine.status {
         case .loading: status = "Loading speech model…"
-        case .ready: status = prefs.triggerStyle == "toggle" ? "Ready — press \(prefs.hotkey.displayName) to dictate" : "Ready — hold \(prefs.hotkey.displayName) to dictate"
+        case .ready: status = prefs.triggerStyle == "toggle" ? "Ready — press \(key) to dictate" : "Ready — hold \(key) to dictate"
         case .failed(let message): status = "Problem: \(message)"
         }
-        menu.addItem(withTitle: status, action: nil, keyEquivalent: "")
+        menu.addItem(withTitle: prefs.paused ? "Paused" : status, action: nil, keyEquivalent: "")
         if let warning = engine.cleanupWarning {
             menu.addItem(withTitle: warning, action: nil, keyEquivalent: "")
         }
@@ -211,6 +261,36 @@ extension AppDelegate: NSMenuDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
+
+        let pause = NSMenuItem(title: "Pause dictation", action: #selector(togglePause), keyEquivalent: "")
+        pause.target = self
+        pause.state = prefs.paused ? .on : .off
+        menu.addItem(pause)
+
+        let recents = NSMenuItem(title: "Recent dictations", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        let items = RecentDictations.shared.items
+        if items.isEmpty {
+            submenu.addItem(withTitle: "Nothing yet", action: nil, keyEquivalent: "")
+        } else {
+            for entry in items {
+                let oneLine = entry.text.replacingOccurrences(of: "\n", with: " ")
+                let title = oneLine.count > 48 ? String(oneLine.prefix(47)) + "…" : oneLine
+                let item = NSMenuItem(title: title, action: #selector(copyRecent(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = entry.text
+                item.toolTip = "Click to copy"
+                submenu.addItem(item)
+            }
+            submenu.addItem(.separator())
+            let clear = NSMenuItem(title: "Clear", action: #selector(clearRecents), keyEquivalent: "")
+            clear.target = self
+            submenu.addItem(clear)
+        }
+        recents.submenu = submenu
+        menu.addItem(recents)
+        menu.addItem(.separator())
+
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
