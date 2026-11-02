@@ -108,7 +108,17 @@ struct SettingsView: View {
                     HStack {
                         Text(term.text)
                         Spacer()
-                        Text(term.source).foregroundStyle(.secondary).font(.caption)
+                        if term.source == "learned" {
+                            Text("learned")
+                                .font(.caption)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                                .foregroundStyle(Color.accentColor)
+                                .help("Picked up from a word you fixed after dictating")
+                        } else {
+                            Text(term.source).foregroundStyle(.secondary).font(.caption)
+                        }
                         Button {
                             engine.removeTerm(term.text)
                             terms.removeAll { $0.text == term.text }
@@ -126,6 +136,8 @@ struct SettingsView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2) { reloadTerms() }
                 }
             }
+            Toggle("Learn from my corrections", isOn: $prefs.learnFromCorrections)
+                .help("When you fix a dictated word, Flowstate reads back just that text, on this Mac, and remembers the spelling.")
         }
         .padding()
         .onAppear(perform: reloadTerms)
