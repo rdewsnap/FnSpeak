@@ -4,6 +4,7 @@ pub mod cleanup;
 pub mod context;
 pub mod filter;
 pub mod history;
+pub mod notes;
 pub mod pipeline;
 pub mod stt;
 pub mod tier;
