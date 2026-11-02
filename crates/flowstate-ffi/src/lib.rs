@@ -862,3 +862,92 @@ fn build_cleaner(mode: CleanupMode, local: Option<&LocalModel>, cloud: Option<&C
         }
     }
 }
+
+/*
+ * Sync: writing what a Flowstate server sent back. These keep the given
+ * timestamps (Unix seconds) and never call the cleanup model; the app keeps
+ * the mapping between local ids and the server's ids itself.
+ */
+
+/// A transcript line pulled from a server.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct SyncedSegment {
+    pub started_ms: i64,
+    pub ended_ms: i64,
+    pub speaker: String,
+    pub text: String,
+}
+
+/// A whole meeting pulled from a server.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct SyncedMeeting {
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
+    pub title: String,
+    pub participants: Vec<String>,
+    pub status: MeetingStatus,
+    pub summary_md: Option<String>,
+    pub action_items: Vec<ActionItem>,
+    pub transcript_md: Option<String>,
+    pub segments: Vec<SyncedSegment>,
+}
+
+impl From<MeetingStatus> for notes::MeetingStatus {
+    fn from(s: MeetingStatus) -> Self {
+        match s {
+            MeetingStatus::Recording => notes::MeetingStatus::Recording,
+            MeetingStatus::Processing => notes::MeetingStatus::Processing,
+            MeetingStatus::Done => notes::MeetingStatus::Done,
+        }
+    }
+}
+
+#[uniffi::export]
+impl FlowstateEngine {
+    /// Create (`id` None) or overwrite a note with a synced copy. The title
+    /// is used as is, even when empty.
+    pub fn put_synced_note(&self, id: Option<i64>, note: NoteInput, created_at: i64, updated_at: i64) -> Result<Note, FlowstateError> {
+        let draft = notes::NoteDraft {
+            title: note.title,
+            body_md: note.body_md,
+            source: note.source.into(),
+            meeting_id: note.meeting_id,
+            tags: note.tags,
+            pinned: note.pinned,
+        };
+        self.store().put_synced_note(id, &draft, created_at, updated_at).map(Note::from).map_err(storage_err)
+    }
+
+    /// Create (`id` None) or replace a meeting and its segments with a
+    /// synced copy. Refuses the meeting being recorded.
+    pub fn put_synced_meeting(&self, id: Option<i64>, meeting: SyncedMeeting) -> Result<Meeting, FlowstateError> {
+        if let Some(id) = id {
+            if self.meeting.lock().unwrap().as_ref().is_some_and(|s| s.meeting_id() == id) {
+                return Err(FlowstateError::Meeting("this meeting is being recorded".into()));
+            }
+        }
+        let import = notes::MeetingImport {
+            started_at: meeting.started_at,
+            ended_at: meeting.ended_at,
+            title: meeting.title,
+            participants: meeting.participants,
+            status: meeting.status.into(),
+            summary_md: meeting.summary_md,
+            action_items: meeting
+                .action_items
+                .into_iter()
+                .map(|a| notes::ActionItem { owner: a.owner, task: a.task, due: a.due, done: a.done })
+                .collect(),
+            raw_transcript_md: meeting.transcript_md,
+            segments: meeting
+                .segments
+                .into_iter()
+                .map(|s| notes::SegmentImport { started_ms: s.started_ms, ended_ms: s.ended_ms, speaker: s.speaker, text: s.text })
+                .collect(),
+        };
+        let store = self.store();
+        let m = store.put_synced_meeting(id, &import).map_err(storage_err)?;
+        let segments = store.segments(m.id).map_err(storage_err)?;
+        Ok(Meeting::new(m, segments))
+    }
+}

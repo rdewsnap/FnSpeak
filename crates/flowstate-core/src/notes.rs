@@ -9,6 +9,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use rusqlite::{Error, Result};
 
+mod sync;
+pub use sync::{MeetingImport, SegmentImport};
+
 /// Speaker label for audio from the user's microphone.
 pub const SPEAKER_ME: &str = "me";
 /// Speaker label for audio the computer played: everyone else on the call.
