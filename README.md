@@ -71,7 +71,7 @@ crates/flowstate-ffi      UniFFI bindings for the Mac app
 crates/flowstate-mcp      the local MCP server
 crates/flowstate-bench    benchmark CLI
 apps/mac                  the menu bar app (Swift)
-prompts/                  the cleanup prompt, shared with training
+prompts/                  model prompts
 training/                 data prep and fine-tuning
 ```
 
