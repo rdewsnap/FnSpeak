@@ -46,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         meetings.onRecordingChange = { [weak self] in self?.updateStatusIcon() }
         overlay.onIdleClick = { [weak self] in self?.notes.newNote() }
         setUpActions()
+        AccountController.shared.engine = engine
 
         if prefs.onboarded {
             begin()
@@ -281,6 +282,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         meetings.showList()
     }
 
+    @objc private func openAccount() {
+        showSettings(tab: .account)
+    }
+
     @objc private func openAbout() {
         showSettings(tab: .about)
     }
@@ -419,6 +424,9 @@ extension AppDelegate: NSMenuDelegate {
         meetings.addMenuItems(to: menu)
         menu.addItem(.separator())
 
+        let account = NSMenuItem(title: "Account…", action: #selector(openAccount), keyEquivalent: "")
+        account.target = self
+        menu.addItem(account)
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
