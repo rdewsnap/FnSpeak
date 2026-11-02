@@ -38,6 +38,11 @@ final class Preferences: ObservableObject {
     /// Bundle id → `ax` or `type`, for apps where pasting doesn't work.
     @Published var insertionOverrides: [String: String] { didSet { defaults.set(insertionOverrides, forKey: "insertionOverrides") } }
 
+    /// App category → `WritingStyle`, where it differs from the default.
+    @Published var categoryStyles: [String: String] { didSet { defaults.set(categoryStyles, forKey: "categoryStyles") } }
+    /// Bundle id → `WritingStyle`.
+    @Published var styleOverrides: [String: String] { didSet { defaults.set(styleOverrides, forKey: "styleOverrides") } }
+
     /// Dictation is switched off from the menu. Deliberately not saved: it
     /// resets on relaunch so a forgotten pause can't linger.
     @Published var paused = false
@@ -82,6 +87,8 @@ final class Preferences: ObservableObject {
         historyDays = defaults.object(forKey: "historyDays") as? Int ?? 30
         learnFromCorrections = defaults.object(forKey: "learnFromCorrections") as? Bool ?? true
         insertionOverrides = defaults.dictionary(forKey: "insertionOverrides") as? [String: String] ?? [:]
+        categoryStyles = defaults.dictionary(forKey: "categoryStyles") as? [String: String] ?? [:]
+        styleOverrides = defaults.dictionary(forKey: "styleOverrides") as? [String: String] ?? [:]
         showInMenuBar = defaults.object(forKey: "showInMenuBar") as? Bool ?? true
         showInDock = defaults.object(forKey: "showInDock") as? Bool ?? false
         soundsEnabled = defaults.object(forKey: "soundsEnabled") as? Bool ?? false
@@ -96,6 +103,20 @@ final class Preferences: ObservableObject {
         autoStopEnabled = defaults.object(forKey: "autoStopEnabled") as? Bool ?? false
         autoStopSeconds = defaults.object(forKey: "autoStopSeconds") as? Double ?? 3
         microphoneId = defaults.string(forKey: "microphoneId") ?? ""
+    }
+
+    func categoryStyle(_ category: AppCategory) -> WritingStyle {
+        WritingStyle(rawValue: categoryStyles[category.rawValue] ?? "") ?? category.defaultStyle
+    }
+
+    func setCategoryStyle(_ style: WritingStyle, for category: AppCategory) {
+        categoryStyles[category.rawValue] = style.rawValue
+    }
+
+    /// The style for text going into this app, if it has a category or an override.
+    func writingStyle(forApp bundleId: String) -> WritingStyle? {
+        if let raw = styleOverrides[bundleId], let style = WritingStyle(rawValue: raw) { return style }
+        return AppCategory.of(bundleId).map(categoryStyle)
     }
 
     var customHotkey: Hotkey {
