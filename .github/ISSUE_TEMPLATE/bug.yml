@@ -1,0 +1,62 @@
+name: Bug report
+description: Something typed wrong, didn't type, or crashed
+labels: [bug]
+body:
+  - type: textarea
+    id: said
+    attributes:
+      label: What you said
+      description: As close to word for word as you can. Skip anything private.
+    validations:
+      required: true
+  - type: textarea
+    id: typed
+    attributes:
+      label: What it typed
+      description: Paste the text, or say it typed nothing.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "15.2"
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Chip and RAM
+      placeholder: "M2 Pro, 16 GB"
+    validations:
+      required: true
+  - type: dropdown
+    id: cleanup
+    attributes:
+      label: Cleanup mode
+      options: [Local, Cloud, Filter only, Raw]
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Speech engine
+      options: [Whisper, Parakeet]
+    validations:
+      required: true
+  - type: input
+    id: app
+    attributes:
+      label: App you were typing into
+      placeholder: "Slack, Mail, Xcode..."
+  - type: input
+    id: version
+    attributes:
+      label: Flowstate version
+      placeholder: "0.1.0 or a commit"

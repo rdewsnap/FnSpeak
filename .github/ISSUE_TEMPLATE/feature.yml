@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest something Flowstate should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The situation first, the fix second.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Chip and RAM, if it matters
+      placeholder: "M1, 8 GB"
+  - type: dropdown
+    id: cleanup
+    attributes:
+      label: Cleanup mode you use
+      options: [Local, Cloud, Filter only, Raw]
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Speech engine you use
+      options: [Whisper, Parakeet]
