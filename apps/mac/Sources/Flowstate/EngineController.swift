@@ -182,6 +182,7 @@ final class EngineController: ObservableObject {
         case .anthropic: provider = .anthropic
         case .groq: provider = .openAiCompatible(baseUrl: "https://api.groq.com/openai/v1")
         case .custom: provider = .openAiCompatible(baseUrl: prefs.customBaseURL)
+        case .flowstate: provider = .flowstate(baseUrl: prefs.serverAPIBase)
         }
         let key = prefs.apiKey
         if prefs.cloudProvider != .custom && (key ?? "").isEmpty { return nil }

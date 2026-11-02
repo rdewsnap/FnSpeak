@@ -9,13 +9,14 @@ final class Preferences: ObservableObject {
     private let defaults = UserDefaults.standard
 
     enum CloudProviderChoice: String, CaseIterable, Identifiable {
-        case anthropic, groq, custom
+        case anthropic, groq, custom, flowstate
         var id: String { rawValue }
         var label: String {
             switch self {
             case .anthropic: return "Anthropic (Claude)"
             case .groq: return "Groq"
             case .custom: return "Other OpenAI-compatible"
+            case .flowstate: return "Flowstate Cloud (or your server)"
             }
         }
     }
@@ -161,6 +162,10 @@ final class Preferences: ObservableObject {
             cloudLightModel = "llama-3.1-8b-instant"
         case .custom:
             break
+        case .flowstate:
+            // The server picks its own models.
+            cloudModel = "flowstate"
+            cloudLightModel = ""
         }
     }
 
@@ -383,8 +388,9 @@ extension Preferences {
 // MARK: - Account and sync
 
 extension Preferences {
-    /// Keychain account holding the server's API token.
-    static let accountKeychainAccount = "flowstate"
+    /// Keychain account holding the server's API token. The same name as the
+    /// `flowstate` cleanup provider, so `apiKey` finds it with no extra setup.
+    static let accountKeychainAccount = CloudProviderChoice.flowstate.rawValue
 
     /// The Flowstate server: Flowstate Cloud unless the user picked their own.
     var serverURL: String {

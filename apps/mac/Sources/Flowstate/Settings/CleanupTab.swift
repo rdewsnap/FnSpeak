@@ -9,6 +9,7 @@ struct CleanupTab: View {
     @State private var testing = false
     @State private var testResult: CloudConnectionTest.Outcome?
     @State private var keptWords: [String] = []
+    @ObservedObject private var account = AccountController.shared
 
     var body: some View {
         Form {
@@ -96,7 +97,9 @@ struct CleanupTab: View {
     private var cloudSection: some View {
         Section("Cloud") {
             Picker("Provider", selection: $prefs.cloudProvider) {
-                ForEach(Preferences.CloudProviderChoice.allCases) { Text($0.label).tag($0) }
+                ForEach(Preferences.CloudProviderChoice.allCases.filter { $0 != .flowstate || account.isSignedIn || prefs.cloudProvider == .flowstate }) {
+                    Text($0.label).tag($0)
+                }
             }
             .onChange(of: prefs.cloudProvider) {
                 prefs.applyProviderDefaults()
@@ -108,9 +111,13 @@ struct CleanupTab: View {
                 Text("Any server that speaks the OpenAI chat completions API, such as Ollama or LM Studio. The key is optional.")
                     .font(.callout).foregroundStyle(.secondary)
             }
-            SecureField("API key", text: $apiKey)
-            TextField("Model for corrections", text: $prefs.cloudModel)
-            TextField("Model for everything else", text: $prefs.cloudLightModel)
+            if prefs.cloudProvider == .flowstate {
+                FlowstateCleanupNote()
+            } else {
+                SecureField("API key", text: $apiKey)
+                TextField("Model for corrections", text: $prefs.cloudModel)
+                TextField("Model for everything else", text: $prefs.cloudLightModel)
+            }
 
             HStack {
                 Button("Save") {

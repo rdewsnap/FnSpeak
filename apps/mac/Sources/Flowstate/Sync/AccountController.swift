@@ -111,6 +111,12 @@ final class AccountController: ObservableObject {
         phase = .signedOut
         notice = nil
         error = nil
+        // Without the token the server can't clean up; stop using it.
+        if prefs.cloudProvider == .flowstate {
+            prefs.cloudProvider = .groq
+            prefs.applyProviderDefaults()
+            engine?.reconfigureCleanup()
+        }
         NotificationCenter.default.post(name: .accountChanged, object: self)
         // Revoke this Mac's token on the server; signed out locally either way.
         if let client, let tokenId {

@@ -22,8 +22,9 @@ enum CloudConnectionTest {
             request = URLRequest(url: url)
             request.setValue(key, forHTTPHeaderField: "x-api-key")
             request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        case .groq, .custom:
-            let base = provider == .groq ? "https://api.groq.com/openai/v1" : customBaseURL
+        case .groq, .custom, .flowstate:
+            let base = provider == .groq ? "https://api.groq.com/openai/v1"
+                : provider == .flowstate ? Preferences.shared.serverAPIBase : customBaseURL
             let trimmed = base.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             guard let parsed = URL(string: trimmed + "/chat/completions"), parsed.scheme?.hasPrefix("http") == true, parsed.host != nil else {
                 return Outcome(ok: false, message: "That isn't a valid URL.")
