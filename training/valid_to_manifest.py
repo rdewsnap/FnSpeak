@@ -36,6 +36,9 @@ def main() -> None:
 
     pairs = [json.loads(l) for l in args.pairs.read_text().splitlines() if l.strip()]
     random.Random(args.seed).shuffle(pairs)
+    # The phonetic index panics on some non-ASCII input (rphonetic slices
+    # inside a multi-byte char), so keep the slice ASCII for now.
+    pairs = [p for p in pairs if p["transcript"].isascii()]
     vocab: dict[str, None] = {}
     with args.out.open("w") as f:
         for i, p in enumerate(pairs[: args.count]):

@@ -22,6 +22,7 @@ import collections
 import concurrent.futures as futures
 import json
 import random
+import signal
 import socket
 import subprocess
 import sys
@@ -195,6 +196,8 @@ def main() -> None:
     if args.out.exists():
         seen = {json.loads(l)["transcript"] for l in args.out.read_text().splitlines() if l.strip()}
     proc, url = start_server(args.server, args.model, args.parallel)
+    # Stopping early with kill should still take the server down with us.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
     rejected: collections.Counter = collections.Counter()
     kept = len(seen)
 
