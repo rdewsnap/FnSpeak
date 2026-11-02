@@ -4,12 +4,15 @@
 
 use flowstate_core::cleanup::{AnthropicCleaner, Cleaner, LocalCleaner, LocalConfig, OpenAiCompatCleaner, RoutedCleaner};
 use flowstate_core::history::History;
+use flowstate_core::meeting::{self as live, MeetingSession, PipelineTranscriber, SegmentListener, VadConfig};
+use flowstate_core::notes::{self, NotesStore};
 use flowstate_core::stt::SttEngine;
+use flowstate_core::summary;
 use flowstate_core::tier::HardwareInfo;
 use flowstate_core::vocab::{self, VocabIndex};
 use flowstate_core::{CleanupMode, DictationContext, Pipeline};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 uniffi::setup_scaffolding!();
@@ -22,6 +25,8 @@ pub enum FlowstateError {
     Dictation(String),
     #[error("{0}")]
     Storage(String),
+    #[error("{0}")]
+    Meeting(String),
 }
 
 fn setup_err(e: impl std::fmt::Display) -> FlowstateError {
@@ -95,7 +100,7 @@ pub struct LocalModel {
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct EngineConfig {
-    /// Where the vocabulary and history databases live.
+    /// Where the vocabulary, history and notes databases live.
     pub data_dir: String,
     pub speech: SpeechEngine,
     pub mode: Mode,
@@ -204,7 +209,11 @@ pub fn scan_projects(root: String) -> Result<Vec<String>, FlowstateError> {
 
 #[derive(uniffi::Object)]
 pub struct FlowstateEngine {
-    pipeline: Mutex<Pipeline>,
+    // Shared with the meeting worker, which transcribes through it.
+    pipeline: Arc<Mutex<Pipeline>>,
+    notes: Arc<Mutex<NotesStore>>,
+    meeting: Mutex<Option<MeetingSession>>,
+    listener: Arc<RwLock<Option<Arc<dyn MeetingListener>>>>,
 }
 
 #[uniffi::export]
@@ -215,10 +224,18 @@ impl FlowstateEngine {
         std::fs::create_dir_all(&dir).map_err(storage_err)?;
         let vocab = VocabIndex::open(dir.join("vocabulary.db")).map_err(storage_err)?;
         let history = History::open(dir.join("history.db")).map_err(storage_err)?;
+        let notes = NotesStore::open(dir.join("notes.db")).map_err(storage_err)?;
+        // A meeting still "recording" means the app quit or crashed mid-meeting.
+        notes.recover_interrupted().map_err(storage_err)?;
 
         let mut pipeline = Pipeline::new(build_stt(&config.speech)?, vocab, config.mode.into()).with_history(history);
         pipeline.set_cleaner(build_cleaner(config.mode.into(), config.local.as_ref(), config.cloud.as_ref())?);
-        Ok(Arc::new(FlowstateEngine { pipeline: Mutex::new(pipeline) }))
+        Ok(Arc::new(FlowstateEngine {
+            pipeline: Arc::new(Mutex::new(pipeline)),
+            notes: Arc::new(Mutex::new(notes)),
+            meeting: Mutex::new(None),
+            listener: Arc::new(RwLock::new(None)),
+        }))
     }
 
     /// Transcribe and clean a clip of 16 kHz mono f32 samples.
@@ -314,6 +331,399 @@ impl FlowstateEngine {
             None => Ok(0),
         }
     }
+}
+
+/*
+ * Notes and meetings. Everything is stored in `notes.db` in the data dir.
+ *
+ * Notes:     create_note, update_note, delete_note, notes(limit)
+ * Search:    search(query) covers notes, meeting titles and summaries, and
+ *            transcripts; snippets mark matches with **bold**.
+ * Meetings:  start_meeting → feed_meeting_audio (repeatedly, from the audio
+ *            threads) → finish_meeting. One meeting at a time.
+ *            meetings(limit), meeting(id), delete_meeting(id),
+ *            summarize_meeting(id) to retry a summary, and
+ *            export_meeting_markdown(id).
+ * Live view: set_meeting_listener; segment() is called on a background
+ *            thread as each utterance is transcribed. Segments can arrive
+ *            slightly out of order across the two sources; sort by
+ *            started_ms.
+ *
+ * Speakers: the mic stream is "me", the system-audio stream is "others".
+ * Feed both streams continuously from the start, silence included, at
+ * 16 kHz mono f32: timestamps are counted in samples per stream.
+ *
+ * Calls that may run the cleanup model (finish_meeting, summarize_meeting,
+ * create_note and update_note with an empty title) block for as long as
+ * the model takes; call them off the main thread.
+ */
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum NoteSource {
+    Quick,
+    Meeting,
+    Dictation,
+}
+
+impl From<NoteSource> for notes::NoteSource {
+    fn from(s: NoteSource) -> Self {
+        match s {
+            NoteSource::Quick => notes::NoteSource::Quick,
+            NoteSource::Meeting => notes::NoteSource::Meeting,
+            NoteSource::Dictation => notes::NoteSource::Dictation,
+        }
+    }
+}
+
+impl From<notes::NoteSource> for NoteSource {
+    fn from(s: notes::NoteSource) -> Self {
+        match s {
+            notes::NoteSource::Quick => NoteSource::Quick,
+            notes::NoteSource::Meeting => NoteSource::Meeting,
+            notes::NoteSource::Dictation => NoteSource::Dictation,
+        }
+    }
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct Note {
+    pub id: i64,
+    /// Unix seconds.
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub title: String,
+    pub body_md: String,
+    pub source: NoteSource,
+    pub meeting_id: Option<i64>,
+    pub tags: Vec<String>,
+    pub pinned: bool,
+}
+
+impl From<notes::Note> for Note {
+    fn from(n: notes::Note) -> Self {
+        Note {
+            id: n.id,
+            created_at: n.created_at,
+            updated_at: n.updated_at,
+            title: n.title,
+            body_md: n.body_md,
+            source: n.source.into(),
+            meeting_id: n.meeting_id,
+            tags: n.tags,
+            pinned: n.pinned,
+        }
+    }
+}
+
+/// What the app sends to create or replace a note.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct NoteInput {
+    /// Leave empty to have one written: by the cleanup model when there is
+    /// one, otherwise from the note's first words.
+    pub title: String,
+    pub body_md: String,
+    pub source: NoteSource,
+    pub meeting_id: Option<i64>,
+    pub tags: Vec<String>,
+    pub pinned: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum MeetingStatus {
+    Recording,
+    /// Recording stopped; the summary isn't there yet (or failed: retry with
+    /// `summarize_meeting`).
+    Processing,
+    Done,
+}
+
+impl From<notes::MeetingStatus> for MeetingStatus {
+    fn from(s: notes::MeetingStatus) -> Self {
+        match s {
+            notes::MeetingStatus::Recording => MeetingStatus::Recording,
+            notes::MeetingStatus::Processing => MeetingStatus::Processing,
+            notes::MeetingStatus::Done => MeetingStatus::Done,
+        }
+    }
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ActionItem {
+    /// Only when the meeting said who.
+    pub owner: Option<String>,
+    pub task: String,
+    /// Only when the meeting said when, in the words used ("Friday").
+    pub due: Option<String>,
+    pub done: bool,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct Segment {
+    pub id: i64,
+    pub meeting_id: i64,
+    /// Offsets from the start of the meeting.
+    pub started_ms: i64,
+    pub ended_ms: i64,
+    /// "me", "others", or a name.
+    pub speaker: String,
+    /// Exactly what the speech engine heard.
+    pub raw: String,
+    /// Fillers removed and vocabulary fixed; never rewritten by a model.
+    pub text: String,
+}
+
+impl From<notes::Segment> for Segment {
+    fn from(s: notes::Segment) -> Self {
+        Segment { id: s.id, meeting_id: s.meeting_id, started_ms: s.started_ms, ended_ms: s.ended_ms, speaker: s.speaker, raw: s.raw, text: s.text }
+    }
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct Meeting {
+    pub id: i64,
+    /// Unix seconds.
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
+    pub title: String,
+    pub calendar_event_id: Option<String>,
+    pub participants: Vec<String>,
+    pub status: MeetingStatus,
+    /// Markdown with Summary, Decisions, Action items and Open questions.
+    pub summary_md: Option<String>,
+    pub action_items: Vec<ActionItem>,
+    /// The timestamped transcript, frozen when recording stopped.
+    pub transcript_md: Option<String>,
+    /// Filled by `meeting(id)` and `finish_meeting`; empty in `meetings(limit)`.
+    pub segments: Vec<Segment>,
+}
+
+impl Meeting {
+    fn new(m: notes::Meeting, segments: Vec<notes::Segment>) -> Self {
+        Meeting {
+            id: m.id,
+            started_at: m.started_at,
+            ended_at: m.ended_at,
+            title: m.title,
+            calendar_event_id: m.calendar_event_id,
+            participants: m.participants,
+            status: m.status.into(),
+            summary_md: m.summary_md,
+            action_items: m
+                .action_items
+                .into_iter()
+                .map(|a| ActionItem { owner: a.owner, task: a.task, due: a.due, done: a.done })
+                .collect(),
+            transcript_md: m.raw_transcript_md,
+            segments: segments.into_iter().map(Segment::from).collect(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum SearchHitKind {
+    Note,
+    /// The meeting's title or summary matched.
+    Meeting,
+    /// Something said in the meeting matched; see `started_ms`.
+    Segment,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct SearchHit {
+    pub kind: SearchHitKind,
+    pub note_id: Option<i64>,
+    pub meeting_id: Option<i64>,
+    pub segment_id: Option<i64>,
+    /// The note's or meeting's title.
+    pub title: String,
+    /// Matching text with the matched words in **bold**.
+    pub snippet: String,
+    /// When the note was last edited, or when the meeting started (Unix seconds).
+    pub at: i64,
+    pub started_ms: Option<i64>,
+}
+
+impl From<notes::SearchHit> for SearchHit {
+    fn from(h: notes::SearchHit) -> Self {
+        SearchHit {
+            kind: match h.kind {
+                notes::HitKind::Note => SearchHitKind::Note,
+                notes::HitKind::Meeting => SearchHitKind::Meeting,
+                notes::HitKind::Segment => SearchHitKind::Segment,
+            },
+            note_id: h.note_id,
+            meeting_id: h.meeting_id,
+            segment_id: h.segment_id,
+            title: h.title,
+            snippet: h.snippet,
+            at: h.at,
+            started_ms: h.started_ms,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum AudioSource {
+    /// The user's microphone: transcribed as "me".
+    Mic,
+    /// What the computer plays (the call): transcribed as "others".
+    System,
+}
+
+impl From<AudioSource> for live::AudioSource {
+    fn from(s: AudioSource) -> Self {
+        match s {
+            AudioSource::Mic => live::AudioSource::Mic,
+            AudioSource::System => live::AudioSource::System,
+        }
+    }
+}
+
+/// Implemented by the app to show transcript segments as they land.
+#[uniffi::export(callback_interface)]
+pub trait MeetingListener: Send + Sync {
+    /// Called on a background thread.
+    fn segment(&self, segment: Segment);
+}
+
+/// Forwards to whichever listener is set when a segment lands, so the app
+/// can set or clear it mid-meeting.
+struct ListenerSlot(Arc<RwLock<Option<Arc<dyn MeetingListener>>>>);
+
+impl SegmentListener for ListenerSlot {
+    fn segment(&self, segment: &notes::Segment) {
+        let listener = self.0.read().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(listener) = listener {
+            listener.segment(segment.clone().into());
+        }
+    }
+}
+
+const SEARCH_LIMIT: usize = 50;
+/// Vocabulary terms given to the summary model.
+const SUMMARY_VOCAB: usize = 40;
+
+#[uniffi::export]
+impl FlowstateEngine {
+    pub fn create_note(&self, note: NoteInput) -> Result<Note, FlowstateError> {
+        let draft = self.note_draft(note);
+        self.store().create_note(&draft).map(Note::from).map_err(storage_err)
+    }
+
+    pub fn update_note(&self, id: i64, note: NoteInput) -> Result<Note, FlowstateError> {
+        let draft = self.note_draft(note);
+        self.store().update_note(id, &draft).map(Note::from).map_err(storage_err)
+    }
+
+    /// False if there was no such note.
+    pub fn delete_note(&self, id: i64) -> Result<bool, FlowstateError> {
+        self.store().delete_note(id).map_err(storage_err)
+    }
+
+    /// Pinned first, then most recently edited.
+    pub fn notes(&self, limit: u32) -> Result<Vec<Note>, FlowstateError> {
+        Ok(self.store().notes(limit as usize).map_err(storage_err)?.into_iter().map(Note::from).collect())
+    }
+
+    /// Best matches first. Every word must match; the last may be a prefix.
+    pub fn search(&self, query: String) -> Result<Vec<SearchHit>, FlowstateError> {
+        Ok(self.store().search(&query, SEARCH_LIMIT).map_err(storage_err)?.into_iter().map(SearchHit::from).collect())
+    }
+
+    /// Start recording a meeting. Fails if one is already being recorded.
+    pub fn start_meeting(&self, title: String, calendar_event_id: Option<String>, participants: Vec<String>) -> Result<Meeting, FlowstateError> {
+        let mut current = self.meeting.lock().unwrap();
+        if current.is_some() {
+            return Err(FlowstateError::Meeting("a meeting is already being recorded".into()));
+        }
+        let meeting = self.store().start_meeting(&title, calendar_event_id.as_deref(), &participants).map_err(storage_err)?;
+        let transcriber = PipelineTranscriber { pipeline: self.pipeline.clone(), context: vocab_context(&meeting) };
+        let listener: Arc<dyn SegmentListener> = Arc::new(ListenerSlot(self.listener.clone()));
+        *current = Some(MeetingSession::start(meeting.id, self.notes.clone(), Box::new(transcriber), Some(listener), VadConfig::default()));
+        Ok(Meeting::new(meeting, vec![]))
+    }
+
+    /// Queue 16 kHz mono f32 samples from one source. Cheap enough for an
+    /// audio callback; does nothing when no meeting is being recorded.
+    pub fn feed_meeting_audio(&self, source: AudioSource, samples: Vec<f32>) {
+        if let Some(session) = self.meeting.lock().unwrap().as_ref() {
+            session.feed(source.into(), samples);
+        }
+    }
+
+    /// Stop recording, transcribe what's still queued, and summarize. Blocks
+    /// until done. If summarizing fails the transcript is still saved and
+    /// the meeting stays in Processing; retry with `summarize_meeting`.
+    pub fn finish_meeting(&self) -> Result<Meeting, FlowstateError> {
+        let session = self.meeting.lock().unwrap().take().ok_or_else(|| FlowstateError::Meeting("no meeting is being recorded".into()))?;
+        let id = session.meeting_id();
+        session.finish();
+        self.store().finish_meeting(id).map_err(storage_err)?;
+        self.summarize_meeting(id)
+    }
+
+    /// Summarize a finished meeting again, e.g. after a failure or after
+    /// switching to a mode with a cleanup model.
+    pub fn summarize_meeting(&self, id: i64) -> Result<Meeting, FlowstateError> {
+        let meeting = self.store().meeting(id).map_err(storage_err)?.ok_or_else(|| FlowstateError::Meeting(format!("no meeting {id}")))?.0;
+        let (llm, vocabulary) = {
+            let p = self.pipeline.lock().unwrap();
+            (p.llm(), p.vocab.relevant_terms(&vocab_context(&meeting), &[], SUMMARY_VOCAB).unwrap_or_default())
+        };
+        summary::summarize_meeting(&self.notes, llm.as_deref(), &vocabulary, id)
+            .map_err(|e| FlowstateError::Meeting(format!("transcript saved, but the summary failed: {e}")))?;
+        self.meeting(id)?.ok_or_else(|| FlowstateError::Meeting(format!("no meeting {id}")))
+    }
+
+    /// Most recent first, without segments.
+    pub fn meetings(&self, limit: u32) -> Result<Vec<Meeting>, FlowstateError> {
+        let meetings = self.store().recent_meetings(limit as usize).map_err(storage_err)?;
+        Ok(meetings.into_iter().map(|m| Meeting::new(m, vec![])).collect())
+    }
+
+    /// A meeting with its segments in order.
+    pub fn meeting(&self, id: i64) -> Result<Option<Meeting>, FlowstateError> {
+        Ok(self.store().meeting(id).map_err(storage_err)?.map(|(m, segments)| Meeting::new(m, segments)))
+    }
+
+    /// Delete a meeting and its transcript; notes taken in it are kept.
+    /// Refuses the meeting being recorded.
+    pub fn delete_meeting(&self, id: i64) -> Result<bool, FlowstateError> {
+        if self.meeting.lock().unwrap().as_ref().is_some_and(|s| s.meeting_id() == id) {
+            return Err(FlowstateError::Meeting("finish the meeting before deleting it".into()));
+        }
+        self.store().delete_meeting(id).map_err(storage_err)
+    }
+
+    pub fn export_meeting_markdown(&self, id: i64) -> Result<String, FlowstateError> {
+        self.store().export_meeting_markdown(id).map_err(storage_err)
+    }
+
+    /// Pass None to stop receiving segments.
+    pub fn set_meeting_listener(&self, listener: Option<Box<dyn MeetingListener>>) {
+        *self.listener.write().unwrap() = listener.map(Arc::from);
+    }
+}
+
+impl FlowstateEngine {
+    fn store(&self) -> std::sync::MutexGuard<'_, NotesStore> {
+        self.notes.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn note_draft(&self, note: NoteInput) -> notes::NoteDraft {
+        let title = if note.title.trim().is_empty() {
+            let llm = self.pipeline.lock().unwrap().llm();
+            summary::title_note(llm.as_deref(), &note.body_md)
+        } else {
+            note.title
+        };
+        notes::NoteDraft { title, body_md: note.body_md, source: note.source.into(), meeting_id: note.meeting_id, tags: note.tags, pinned: note.pinned }
+    }
+}
+
+/// Text the vocabulary index scans for hints during a meeting.
+fn vocab_context(meeting: &notes::Meeting) -> String {
+    format!("{}\n{}", meeting.title, meeting.participants.join("\n"))
 }
 
 fn source_name(s: vocab::Source) -> String {
