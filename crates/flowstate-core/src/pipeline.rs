@@ -112,6 +112,25 @@ impl Pipeline {
         Ok(result)
     }
 
+    /// Speech-to-text, the rule-based filter and high-confidence vocabulary
+    /// fixes, but no cleanup model: meeting transcripts have to stay faithful
+    /// to what was said. `context` is text to pick vocabulary hints from.
+    /// Returns the raw and filtered transcripts.
+    pub fn transcribe_verbatim(&mut self, audio: &[f32], context: &str) -> Result<(String, String), PipelineError> {
+        if is_silent(audio) {
+            return Ok((String::new(), String::new()));
+        }
+        let seconds = audio.len() as f32 / SAMPLE_RATE as f32;
+        let hints = SttHints { vocabulary: self.vocab.relevant_terms(context, &[], VOCAB_PER_DICTATION)? };
+        let raw = sanitize(&self.stt.transcribe(audio, &hints)?, seconds);
+        if raw.is_empty() || self.mode == CleanupMode::Raw {
+            return Ok((raw.clone(), raw));
+        }
+        let filtered = filter(&raw);
+        let suggestions = self.vocab.suggest(&filtered)?;
+        Ok((raw, apply_suggestions(&filtered, &suggestions, AUTO_APPLY_SCORE)))
+    }
+
     /// Everything after speech-to-text. Also used by the benchmark to score
     /// transcripts that came from elsewhere.
     pub fn clean(&mut self, raw: &str, ctx: &DictationContext) -> Result<DictationResult, PipelineError> {
@@ -310,6 +329,15 @@ mod tests {
         let mut p = pipeline("Thank you.", CleanupMode::FilterOnly);
         let r = p.dictate(&vec![0.0; 16_000], &DictationContext::default()).unwrap();
         assert_eq!(r.insert, "");
+    }
+
+    #[test]
+    fn verbatim_transcription_skips_the_model() {
+        let mut p = pipeline("um so the kin ju build is is green", CleanupMode::Cloud).with_cleaner(Box::new(Echo("Rewritten.")));
+        let (raw, text) = p.transcribe_verbatim(&speech(), "").unwrap();
+        assert_eq!(raw, "um so the kin ju build is is green");
+        assert_eq!(text, "So the Kinju build is green");
+        assert_eq!(p.transcribe_verbatim(&vec![0.0; 16_000], "").unwrap().0, "");
     }
 
     #[test]

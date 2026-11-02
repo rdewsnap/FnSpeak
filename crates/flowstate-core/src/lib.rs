@@ -3,6 +3,7 @@
 pub mod cleanup;
 pub mod context;
 pub mod filter;
+pub mod meeting;
 pub mod history;
 pub mod notes;
 pub mod pipeline;
