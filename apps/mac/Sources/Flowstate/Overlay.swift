@@ -18,6 +18,9 @@ final class Overlay {
         case learned(String)
         /// A meeting is being recorded; clicking opens its window.
         case meeting(since: Date)
+        /// Nothing happening, with "Show pill when idle" on. Clicking opens
+        /// the notes bar.
+        case idle
     }
 
     final class Model: ObservableObject {
@@ -27,6 +30,13 @@ final class Overlay {
         @Published var alignment: Alignment = .bottom
         var undo: (() -> Void)?
         var openMeeting: (() -> Void)?
+        var openNotes: (() -> Void)?
+    }
+
+    /// Called when the idle pill is clicked.
+    var onIdleClick: (() -> Void)? {
+        get { model.openNotes }
+        set { model.openNotes = newValue }
     }
 
     private static let panelSize = NSSize(width: 460, height: 84)
@@ -58,7 +68,7 @@ final class Overlay {
     /// Nothing in progress, so a toast won't cover anything.
     var isIdle: Bool {
         switch model.state {
-        case .hidden, .pasted, .message, .error, .learned, .meeting: return true
+        case .hidden, .pasted, .message, .error, .learned, .meeting, .idle: return true
         case .listening, .working: return false
         }
     }
@@ -83,18 +93,34 @@ final class Overlay {
         if case .meeting = model.state { show(.hidden) }
     }
 
+    /// Show or drop the idle pill after its setting changed.
+    func refreshIdle() {
+        switch model.state {
+        case .hidden, .idle: show(.hidden)
+        default: break
+        }
+    }
+
     func show(_ state: State) {
         var state = state
-        if state == .hidden, let since = meetingSince { state = .meeting(since: since) }
+        if state == .hidden {
+            if let since = meetingSince {
+                state = .meeting(since: since)
+            } else if prefs.showPillWhenIdle && prefs.overlayPosition != "hidden" {
+                state = .idle
+            }
+        }
+        let wasIdle = model.state == .idle
         hideToken += 1
         let token = hideToken
         model.state = state
-        if case .learned = state {
+        switch state {
+        case .learned:
             panel.ignoresMouseEvents = false
-        } else if case .meeting = state {
+        case .meeting, .idle:
             model.undo = nil
             panel.ignoresMouseEvents = false
-        } else {
+        default:
             model.undo = nil
             panel.ignoresMouseEvents = true
         }
@@ -111,7 +137,13 @@ final class Overlay {
         }
 
         model.scale = Self.scale(prefs.overlaySize)
-        if !panel.isVisible || position != "cursor" { place(position) }
+        // The idle pill can't follow the pointer around, so it waits at the
+        // bottom; a dictation starting from it moves to the pointer.
+        if state == .idle {
+            place(position == "cursor" ? "bottom" : position)
+        } else if !panel.isVisible || position != "cursor" || wasIdle {
+            place(position)
+        }
         panel.orderFrontRegardless()
 
         let lifetime: TimeInterval?
@@ -192,8 +224,45 @@ private final class ClickThroughHostingView<Content: View>: NSHostingView<Conten
 
 private struct PillView: View {
     @ObservedObject var model: Overlay.Model
+    @State private var hovering = false
 
     var body: some View {
+        if model.state == .idle {
+            idlePill
+        } else {
+            pill
+        }
+    }
+
+    /// A small, dim pill that brightens and says what to press on hover.
+    private var idlePill: some View {
+        HStack(spacing: 6 * model.scale) {
+            Image(systemName: "waveform")
+            if hovering { Text(Self.idleHint) }
+        }
+        .font(.system(size: 11 * model.scale, weight: .medium))
+        .foregroundStyle(.white.opacity(hovering ? 0.95 : 0.6))
+        .padding(.horizontal, (hovering ? 12 : 9) * model.scale)
+        .padding(.vertical, 5 * model.scale)
+        .background(Capsule().fill(Color.black.opacity(hovering ? 0.82 : 0.4)))
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.1), lineWidth: 0.5))
+        .contentShape(Capsule())
+        .onHover { hovering = $0 }
+        .onTapGesture { model.openNotes?() }
+        .help(Self.idleHint)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: model.alignment)
+        .padding(.vertical, 12)
+        .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+
+    private static var idleHint: String {
+        let prefs = Preferences.shared
+        let key = prefs.hotkey.displayName
+        let dictate = prefs.triggerStyle == "toggle" ? "Press \(key) to dictate" : "Hold \(key) to dictate"
+        return "\(dictate) · Click for a note"
+    }
+
+    private var pill: some View {
         HStack(spacing: 8 * model.scale) {
             switch model.state {
             case .listening(let handsFree):
@@ -224,7 +293,7 @@ private struct PillView: View {
                         .formatted(.time(pattern: .minuteSecond(padMinuteToLength: 1))))
                         .monospacedDigit()
                 }
-            case .hidden:
+            case .hidden, .idle:
                 EmptyView()
             }
         }
@@ -235,7 +304,7 @@ private struct PillView: View {
         .background(Capsule().fill(Color.black.opacity(0.82)))
         .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
         .contentShape(Capsule())
-        .onTapGesture { model.openMeeting?() }
+        .onTapGesture { if case .meeting = model.state { model.openMeeting?() } }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: model.alignment)
         .padding(.vertical, 12)
         .animation(.easeOut(duration: 0.12), value: model.state)

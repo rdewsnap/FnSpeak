@@ -62,6 +62,8 @@ final class Preferences: ObservableObject {
     @Published var overlayPosition: String { didSet { defaults.set(overlayPosition, forKey: "overlayPosition") } }
     /// `small`, `medium` or `large`.
     @Published var overlaySize: String { didSet { defaults.set(overlaySize, forKey: "overlaySize") } }
+    /// Keep a small dim pill on screen between dictations.
+    @Published var showPillWhenIdle: Bool { didSet { defaults.set(showPillWhenIdle, forKey: "showPillWhenIdle") } }
 
     // MARK: Dictation
 
@@ -103,6 +105,7 @@ final class Preferences: ObservableObject {
         soundsEnabled = defaults.object(forKey: "soundsEnabled") as? Bool ?? false
         overlayPosition = defaults.string(forKey: "overlayPosition") ?? "bottom"
         overlaySize = defaults.string(forKey: "overlaySize") ?? "medium"
+        showPillWhenIdle = defaults.object(forKey: "showPillWhenIdle") as? Bool ?? false
         hotkeyPreset = defaults.string(forKey: "hotkeyPreset") ?? HotkeyPreset.fn.rawValue
         customHotkeyKeyCode = defaults.object(forKey: "customHotkeyKeyCode") as? Int ?? 49
         customHotkeyModifiers = defaults.object(forKey: "customHotkeyModifiers") as? Int

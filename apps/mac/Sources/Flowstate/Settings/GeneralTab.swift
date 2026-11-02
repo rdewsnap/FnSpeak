@@ -57,8 +57,13 @@ struct GeneralTab: View {
                     Text("Medium").tag("medium")
                     Text("Large").tag("large")
                 }
+                Toggle("Show pill when idle", isOn: $prefs.showPillWhenIdle)
+                    .disabled(prefs.overlayPosition == "hidden")
                 if prefs.overlayPosition == "hidden" {
                     Text("Errors and notes still appear so a failed dictation is never silent.")
+                        .font(.callout).foregroundStyle(.secondary)
+                } else if prefs.showPillWhenIdle {
+                    Text("A small pill stays on screen. Hover it to see the hotkey; click it to open the notes bar.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
             }

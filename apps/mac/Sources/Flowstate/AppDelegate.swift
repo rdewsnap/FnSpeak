@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notes.start(engine: engine, toggleMic: { [weak self] in self?.toggleNoteDictation() },
                     isListening: { [weak self] in self?.phase == .listening })
         meetings.onRecordingChange = { [weak self] in self?.updateStatusIcon() }
+        overlay.onIdleClick = { [weak self] in self?.notes.newNote() }
 
         if prefs.onboarded {
             begin()
@@ -195,6 +196,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let policy: NSApplication.ActivationPolicy = prefs.showInDock ? .regular : .accessory
         if NSApp.activationPolicy() != policy { NSApp.setActivationPolicy(policy) }
         updateStatusIcon()
+        // objectWillChange fires before the new value lands; look next turn.
+        DispatchQueue.main.async { [weak self] in self?.overlay.refreshIdle() }
     }
 
     private func updateStatusIcon() {
