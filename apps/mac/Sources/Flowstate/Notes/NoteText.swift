@@ -47,10 +47,11 @@ enum NoteText {
     static func firstLineTitle(_ text: String) -> String {
         let line = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
         var title = line.trimmingCharacters(in: .whitespaces)
-        for prefix in ["- [ ] ", "- [x] ", "- ", "* "] where title.hasPrefix(prefix) {
+        while title.hasPrefix("#") { title.removeFirst() }
+        title = title.trimmingCharacters(in: .whitespaces)
+        for prefix in ["- [ ] ", "- [x] ", "- ", "* ", "> "] where title.hasPrefix(prefix) {
             title.removeFirst(prefix.count)
         }
-        while title.hasPrefix("#") { title.removeFirst() }
         title = title.trimmingCharacters(in: .whitespaces)
         if title.count > 80 { title = String(title.prefix(79)) + "…" }
         return title.isEmpty ? "Untitled" : title
