@@ -30,6 +30,8 @@
     <string>Flowstate learns meeting titles and attendee names from your calendar so it spells them correctly. They stay on your Mac.</string>
     <key>NSScreenCaptureUsageDescription</key>
     <string>Flowstate records the audio of calls you choose to transcribe, so the other side appears in the meeting notes. It captures sound only, never your screen, and stores no audio.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Flowstate creates a note in Apple Notes when you choose Send to Apple Notes.</string>
     <key>NSAudioCaptureUsageDescription</key>
     <string>Flowstate records the audio of calls you choose to transcribe, so the other side appears in the meeting notes. No audio is stored.</string>
 </dict>

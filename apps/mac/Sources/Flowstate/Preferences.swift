@@ -323,6 +323,12 @@ extension Preferences {
 // MARK: - Integrations
 
 extension Preferences {
+    /// Folder in Apple Notes that "Send to Apple Notes" files into.
+    var appleNotesFolder: String {
+        get { defaults.string(forKey: "appleNotesFolder") ?? "Flowstate" }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "appleNotesFolder") }
+    }
+
     /// Where webhook events are posted. Empty is off.
     var webhookURL: String {
         get { defaults.string(forKey: "webhookURL") ?? "" }

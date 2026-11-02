@@ -85,6 +85,14 @@ struct NoteEditorView: View {
                 Label("Copy as Markdown", systemImage: "doc.on.doc")
             }
             .help("Copy as Markdown")
+            Button {
+                saveNow()
+                let note = currentNote
+                AppleNotes.sendShowingErrors(title: note.title, markdown: note.bodyMd)
+            } label: {
+                Label("Send to Apple Notes", systemImage: "square.and.arrow.up")
+            }
+            .help("Send to Apple Notes")
             if NoteExporter.folder != nil {
                 Button { revealInFinder() } label: { Label("Reveal in Finder", systemImage: "folder") }
                     .help("Show the exported Markdown file in Finder")

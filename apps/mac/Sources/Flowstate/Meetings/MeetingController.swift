@@ -330,6 +330,23 @@ final class MeetingController: NSObject, ObservableObject {
         }
     }
 
+    /// The summary and action items (not the transcript) as a new Apple Note.
+    func sendToAppleNotes(_ meeting: Meeting, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let core else { return completion(.failure(FlowstateError.Meeting("Flowstate is still starting up"))) }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try core.exportMeetingMarkdown(id: meeting.id) }
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let markdown):
+                    let summary = markdown.components(separatedBy: "\n## Transcript").first ?? markdown
+                    AppleNotes.send(title: meeting.title, markdown: summary, completion: completion)
+                case .failure(let error):
+                    completion(.failure(error))
+                }
+            }
+        }
+    }
+
     private func save(_ markdown: String, for meeting: Meeting) {
         let panel = NSSavePanel()
         panel.directoryURL = URL(fileURLWithPath: prefs.meetingExportFolder, isDirectory: true)

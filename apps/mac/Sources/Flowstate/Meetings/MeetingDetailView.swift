@@ -172,8 +172,18 @@ struct MeetingDetailView: View {
                 .disabled((meeting.summaryMd ?? "").isEmpty)
             Button("Copy transcript") { copy(MeetingController.transcriptText(meeting), label: "Transcript") }
             Button("Export Markdown…") { controller.export(meeting) }
+            Button("Send to Apple Notes") {
+                problem = nil
+                controller.sendToAppleNotes(meeting) { result in
+                    switch result {
+                    case .success: flash("Sent to Notes")
+                    case .failure(let error): problem = MeetingController.message(for: error)
+                    }
+                }
+            }
+            .help("Copy the summary and action items into Apple Notes")
             if let copied {
-                Text("\(copied) copied").font(.callout).foregroundStyle(.secondary).transition(.opacity)
+                Text(copied).font(.callout).foregroundStyle(.secondary).transition(.opacity)
             }
             Spacer()
             if resummarizing {
@@ -190,8 +200,12 @@ struct MeetingDetailView: View {
     private func copy(_ text: String, label: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-        withAnimation { copied = label }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { withAnimation { if copied == label { copied = nil } } }
+        flash("\(label) copied")
+    }
+
+    private func flash(_ message: String) {
+        withAnimation { copied = message }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { withAnimation { if copied == message { copied = nil } } }
     }
 
     private func resummarize() {
