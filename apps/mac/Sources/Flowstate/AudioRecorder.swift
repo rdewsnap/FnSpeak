@@ -13,6 +13,9 @@ final class AudioRecorder {
     private let lock = NSLock()
     private(set) var isRecording = false
     private var appliedMicrophone = ""
+    /// Set while a meeting has the mic open; dictation then reads from its tap.
+    static var lender: MicLender?
+    private var borrowing = false
 
     static func requestPermission(_ completion: @escaping (Bool) -> Void) {
         AVCaptureDevice.requestAccess(for: .audio) { granted in
@@ -27,6 +30,13 @@ final class AudioRecorder {
     func start() throws {
         guard !isRecording else { return }
         lock.withLock { samples.removeAll(keepingCapacity: true) }
+        if let lender = Self.lender {
+            converter = AVAudioConverter(from: target, to: target)
+            lender.lend { [weak self] in self?.append($0) }
+            borrowing = true
+            isRecording = true
+            return
+        }
 
         let microphone = Preferences.shared.microphoneId
         if microphone != appliedMicrophone {
@@ -51,8 +61,13 @@ final class AudioRecorder {
     @discardableResult
     func stop() -> [Float] {
         guard isRecording else { return [] }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        if borrowing {
+            Self.lender?.endLoan()
+            borrowing = false
+        } else {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+        }
         isRecording = false
         return lock.withLock { samples }
     }
