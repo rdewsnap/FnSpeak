@@ -369,4 +369,10 @@ extension Preferences {
         get { defaults.object(forKey: "meetingAutoExport") as? Bool ?? false }
         set { objectWillChange.send(); defaults.set(newValue, forKey: "meetingAutoExport") }
     }
+
+    /// Act on flowstate:// links from other apps.
+    var urlCommandsEnabled: Bool {
+        get { defaults.object(forKey: "urlCommandsEnabled") as? Bool ?? true }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "urlCommandsEnabled") }
+    }
 }

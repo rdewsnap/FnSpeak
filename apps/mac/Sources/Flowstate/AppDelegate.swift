@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     isListening: { [weak self] in self?.phase == .listening })
         meetings.onRecordingChange = { [weak self] in self?.updateStatusIcon() }
         overlay.onIdleClick = { [weak self] in self?.notes.newNote() }
+        setUpActions()
 
         if prefs.onboarded {
             begin()
@@ -66,6 +67,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func scheduleIndexing() {
         // Index once the engine has its databases open.
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.indexer.indexAll() }
+    }
+
+    // MARK: - Links and Shortcuts
+
+    /// What flowstate:// links and the Shortcuts actions can do. Each waits
+    /// for the engine, since a link can be what launched the app.
+    private func setUpActions() {
+        let actions = AppActions.shared
+        actions.toggleDictation = { [weak self] in self?.whenEngineReady { self?.toggleNoteDictation() } }
+        actions.startMeeting = { [weak self] title in self?.whenEngineReady { self?.meetings.requestStart(title: title) } }
+        actions.stopMeeting = { [weak self] in self?.meetings.stop() }
+        actions.openMeeting = { [weak self] id in self?.whenEngineReady { self?.meetings.open(id: id) } }
+        actions.isRecordingMeeting = { [weak self] in self?.meetings.isRecording ?? false }
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            whenEngineReady { URLCommands.handle(url) }
+        }
+    }
+
+    private var engineWaiters: [() -> Void] = []
+    private var engineWatch: AnyCancellable?
+
+    private func whenEngineReady(_ work: @escaping () -> Void) {
+        guard !engine.isReady else { return work() }
+        if case .failed = engine.status { return work() }
+        engineWaiters.append(work)
+        guard engineWatch == nil else { return }
+        engineWatch = engine.$status
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                guard let self, status != .loading else { return }
+                let waiting = self.engineWaiters
+                self.engineWaiters = []
+                self.engineWatch = nil
+                waiting.forEach { $0() }
+            }
     }
 
     // MARK: - Dictation

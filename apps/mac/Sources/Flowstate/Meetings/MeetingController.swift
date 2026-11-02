@@ -103,7 +103,9 @@ final class MeetingController: NSObject, ObservableObject {
 
     /// Start a meeting, or show the one in progress. Prefills the title and
     /// participants from the calendar event happening now.
-    func requestStart() {
+    /// With a title (from a link or Shortcut) recording starts straight
+    /// away, without asking.
+    func requestStart(title: String? = nil) {
         guard phase == .idle else { return showWindow() }
         guard core != nil else {
             if case .failed(let message) = engine.status { return overlay.show(.error(Overlay.reason(message))) }
@@ -112,7 +114,7 @@ final class MeetingController: NSObject, ObservableObject {
         switch AVCaptureAuthorization.microphone {
         case .notDetermined:
             return AudioRecorder.requestPermission { [weak self] granted in
-                if granted { self?.requestStart() } else { self?.overlay.show(.error("Microphone access is off")) }
+                if granted { self?.requestStart(title: title) } else { self?.overlay.show(.error("Microphone access is off")) }
             }
         case .denied:
             return overlay.show(.error("Microphone access is off"))
@@ -122,7 +124,8 @@ final class MeetingController: NSObject, ObservableObject {
         MeetingCalendar.requestAccessIfNeeded { [weak self] in
             guard let self, self.phase == .idle else { return }
             self.draft = Self.draftFromCalendar()
-            if self.prefs.meetingAskTitle {
+            if let title { self.draft.title = title }
+            if self.prefs.meetingAskTitle && title == nil {
                 self.finished = nil
                 self.phase = .setup
                 self.showWindow()
@@ -344,6 +347,15 @@ final class MeetingController: NSObject, ObservableObject {
                     completion(.failure(error))
                 }
             }
+        }
+    }
+
+    /// Show a stored meeting by id, e.g. from a flowstate:// link.
+    func open(id: Int64) {
+        meeting(id: id) { [weak self] found in
+            guard let self else { return }
+            NSApp.activate(ignoringOtherApps: true)
+            if let found { self.show(found) } else { self.showList() }
         }
     }
 

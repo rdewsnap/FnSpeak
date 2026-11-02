@@ -32,6 +32,17 @@
     <string>Flowstate records the audio of calls you choose to transcribe, so the other side appears in the meeting notes. It captures sound only, never your screen, and stores no audio.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>Flowstate creates a note in Apple Notes when you choose Send to Apple Notes.</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>dev.flowstate.Flowstate</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>flowstate</string>
+            </array>
+        </dict>
+    </array>
     <key>NSAudioCaptureUsageDescription</key>
     <string>Flowstate records the audio of calls you choose to transcribe, so the other side appears in the meeting notes. No audio is stored.</string>
 </dict>
