@@ -25,6 +25,9 @@ uuid = { version = "1.29.0", features = ["v7"] }
 sha2 = "0.11.1"
 hex = "0.4.3"
 getrandom = "0.4.3"
+rmcp = { version = "3.8.0", default-features = false, features = ["server", "macros", "transport-streamable-http-server"] }
+schemars = "1.2.3"
+time = { version = "0.3.55", features = ["formatting", "parsing"] }
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
 
 [dev-dependencies]

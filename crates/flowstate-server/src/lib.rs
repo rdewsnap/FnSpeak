@@ -8,6 +8,7 @@ pub mod db;
 pub mod error;
 pub mod glossary;
 pub mod mail;
+pub mod mcp;
 pub mod ratelimit;
 pub mod store;
 pub mod sync;
@@ -68,9 +69,14 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/sync", get(sync::pull).post(sync::push))
         .route("/v1/search", get(sync::search));
 
+    let mcp = Router::new()
+        .route_service("/mcp", mcp::service(state.clone()))
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), mcp::require_token));
+
     Router::new()
         .route("/healthz", get(healthz))
         .merge(api)
+        .merge(mcp)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(cors(&state.config))
         // Log the route pattern, not the URI: paths and query strings can
