@@ -3,6 +3,7 @@
 //! the same definitions when the Windows shell lands.
 
 use flowstate_core::cleanup::{AnthropicCleaner, Cleaner, LocalCleaner, LocalConfig, OpenAiCompatCleaner, RoutedCleaner};
+use flowstate_core::context::Style;
 use flowstate_core::history::History;
 use flowstate_core::meeting::{self as live, MeetingSession, PipelineTranscriber, SegmentListener, VadConfig};
 use flowstate_core::notes::{self, NotesStore};
@@ -108,6 +109,27 @@ pub struct EngineConfig {
     pub cloud: Option<CloudConfig>,
 }
 
+/// How the cleanup model should write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum WritingStyle {
+    /// Chat: relaxed, light punctuation.
+    Casual,
+    /// Email and documents: full sentences and paragraphs.
+    Prose,
+    /// Editors and terminals: identifiers and symbols kept exactly.
+    Code,
+}
+
+impl From<WritingStyle> for Style {
+    fn from(s: WritingStyle) -> Self {
+        match s {
+            WritingStyle::Casual => Style::Casual,
+            WritingStyle::Prose => Style::Prose,
+            WritingStyle::Code => Style::Code,
+        }
+    }
+}
+
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct Context {
     pub app_id: String,
@@ -115,11 +137,22 @@ pub struct Context {
     pub window_title: String,
     pub url: Option<String>,
     pub text_before: String,
+    /// The style chosen in settings for this app. None lets the core pick
+    /// one from the app id and URL.
+    #[uniffi(default)]
+    pub style: Option<WritingStyle>,
 }
 
 impl From<Context> for DictationContext {
     fn from(c: Context) -> Self {
-        DictationContext { app_id: c.app_id, app_name: c.app_name, window_title: c.window_title, url: c.url, text_before: c.text_before }
+        DictationContext {
+            app_id: c.app_id,
+            app_name: c.app_name,
+            window_title: c.window_title,
+            url: c.url,
+            text_before: c.text_before,
+            style: c.style.map(Style::from),
+        }
     }
 }
 

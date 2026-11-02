@@ -74,6 +74,16 @@ mod tests {
     }
 
     #[test]
+    fn style_override_reaches_the_prompt() {
+        use crate::context::Style;
+        let ctx = DictationContext { app_id: "com.tinyspeck.slackmacgap".into(), style: Some(Style::Code), ..Default::default() };
+        let req = CleanupRequest { transcript: "run cargo test", context: &ctx, vocabulary: &[], suggestions: &[] };
+        let msg = build_user_message(&req);
+        assert!(msg.contains(Style::Code.instructions()));
+        assert!(!msg.contains("casual chat"));
+    }
+
+    #[test]
     fn system_prompt_is_loaded() {
         assert!(SYSTEM_PROMPT.contains("Resolve self-corrections"));
     }

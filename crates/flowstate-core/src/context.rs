@@ -14,6 +14,9 @@ pub struct DictationContext {
     pub url: Option<String>,
     /// Text already in the focused field, up to the cursor.
     pub text_before: String,
+    /// A style the user picked for this app in settings. Wins over the
+    /// style guessed from the app and URL.
+    pub style: Option<Style>,
 }
 
 /// How much of the on-screen text to show the cleanup model.
@@ -21,7 +24,7 @@ const CONTEXT_CHARS: usize = 600;
 
 impl DictationContext {
     pub fn style(&self) -> Style {
-        Style::for_app(&self.app_id, self.url.as_deref())
+        self.style.unwrap_or_else(|| Style::for_app(&self.app_id, self.url.as_deref()))
     }
 
     /// The tail of the field text, trimmed to a sane size on a char boundary.
@@ -130,6 +133,15 @@ mod tests {
         assert_eq!(Style::for_app("com.google.Chrome", Some("https://github.com/x/y/pull/1")), Style::Code);
         assert_eq!(Style::for_app("com.google.Chrome", Some("https://mail.google.com/")), Style::Prose);
         assert_eq!(Style::for_app("Slack.exe", None), Style::Casual);
+    }
+
+    #[test]
+    fn chosen_style_wins_over_the_app() {
+        let slack = DictationContext { app_id: "com.tinyspeck.slackmacgap".into(), ..Default::default() };
+        assert_eq!(slack.style(), Style::Casual);
+        assert_eq!(DictationContext { style: Some(Style::Prose), ..slack.clone() }.style(), Style::Prose);
+        let browser = DictationContext { app_id: "com.google.Chrome".into(), url: Some("https://github.com/".into()), style: Some(Style::Casual), ..Default::default() };
+        assert_eq!(browser.style(), Style::Casual);
     }
 
     #[test]
