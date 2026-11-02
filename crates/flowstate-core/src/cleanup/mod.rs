@@ -61,6 +61,22 @@ pub struct CleanupRequest<'a> {
 pub trait Cleaner: Send {
     fn name(&self) -> String;
     fn clean(&mut self, req: &CleanupRequest<'_>) -> Result<String, CleanupError>;
+
+    /// The model behind this cleaner, for longer free-form jobs like meeting
+    /// summaries. None for cleaners that can't take arbitrary prompts.
+    fn llm(&self) -> Option<Box<dyn Llm>> {
+        None
+    }
+}
+
+/// A detached handle to a cleanup model for jobs other than dictation. It
+/// doesn't borrow the cleaner, so a minute-long summary never blocks a
+/// dictation; if the cleaner is replaced meanwhile, requests just fail.
+pub trait Llm: Send {
+    fn name(&self) -> String;
+    /// Input and output together.
+    fn context_tokens(&self) -> usize;
+    fn complete(&self, system: &str, user: &str, max_tokens: u32) -> Result<String, CleanupError>;
 }
 
 /// Words a cleanup model may introduce even though the speaker didn't say

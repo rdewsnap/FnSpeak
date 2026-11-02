@@ -2,7 +2,7 @@
 //! fillers and punctuation, so they can go to a cheaper, faster model. Only
 //! dictations with correction cues or repeated sentences need the heavy one.
 
-use super::{Cleaner, CleanupError, CleanupRequest};
+use super::{Cleaner, CleanupError, CleanupRequest, Llm};
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -57,6 +57,10 @@ impl Cleaner for RoutedCleaner {
         } else {
             self.light.clean(req)
         }
+    }
+
+    fn llm(&self) -> Option<Box<dyn Llm>> {
+        self.heavy.llm()
     }
 }
 

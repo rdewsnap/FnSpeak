@@ -6,7 +6,7 @@
 //! symbols. A sidecar also keeps a model crash from taking down the app and
 //! lets the app free the model's memory by stopping the process.
 
-use super::{Cleaner, CleanupError, CleanupRequest, OpenAiCompatCleaner};
+use super::{Cleaner, CleanupError, CleanupRequest, Llm, OpenAiCompatCleaner};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -114,7 +114,9 @@ impl LocalCleaner {
     pub fn start(config: LocalConfig) -> Result<Self, CleanupError> {
         let server = LlamaServer::start(&config)?;
         let model_name = file_name(&config.model_path);
-        let inner = OpenAiCompatCleaner::new(format!("{}/v1", server.base_url), None, model_name.clone())?.with_timeout(config.timeout)?;
+        let inner = OpenAiCompatCleaner::new(format!("{}/v1", server.base_url), None, model_name.clone())?
+            .with_timeout(config.timeout)?
+            .with_context_tokens(config.context_tokens as usize);
         Ok(LocalCleaner { inner, model_name, _server: server })
     }
 }
@@ -126,6 +128,12 @@ impl Cleaner for LocalCleaner {
 
     fn clean(&mut self, req: &CleanupRequest<'_>) -> Result<String, CleanupError> {
         self.inner.clean(req)
+    }
+
+    /// Talks to this cleaner's own server, so summaries reuse the loaded
+    /// model instead of starting a second one.
+    fn llm(&self) -> Option<Box<dyn Llm>> {
+        self.inner.llm()
     }
 }
 

@@ -4,7 +4,7 @@
 //! Every step after speech-to-text has a safe fallback, so a slow or failing
 //! cleanup model never loses a dictation: the user gets the filtered text.
 
-use crate::cleanup::{guardrail, trim_expanded_terms, Cleaner, CleanupMode, CleanupRequest};
+use crate::cleanup::{guardrail, trim_expanded_terms, Cleaner, CleanupMode, CleanupRequest, Llm};
 use crate::context::DictationContext;
 use crate::filter::filter;
 use crate::history::History;
@@ -82,6 +82,14 @@ impl Pipeline {
 
     pub fn stt_name(&self) -> &'static str {
         self.stt.name()
+    }
+
+    /// The cleanup model, when the current mode uses one.
+    pub fn llm(&self) -> Option<Box<dyn Llm>> {
+        match self.mode {
+            CleanupMode::Local | CleanupMode::Cloud => self.cleaner.as_ref().and_then(|c| c.llm()),
+            CleanupMode::FilterOnly | CleanupMode::Raw => None,
+        }
     }
 
     /// Run a recorded clip (16 kHz mono f32) through the whole pipeline.
