@@ -22,3 +22,6 @@ apps/mac/Sources/flowstate_ffiFFI/
 
 # Local business notes, not part of the project
 business/
+
+# Agent worktrees
+/.claude/
