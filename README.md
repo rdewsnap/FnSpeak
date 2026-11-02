@@ -62,7 +62,7 @@ cargo run -p flowstate-bench -- --manifest bench/manifest.example.jsonl --vocab 
 
 Record clips as 16 kHz mono WAV, e.g. `ffmpeg -f avfoundation -i ":0" -ar 16000 -ac 1 bench/clips/vocab-01.wav`, and run with `--features whisper,parakeet` for the full pipeline.
 
-I've also started on fine-tuning a smaller model so slower Macs can do cleanup locally. `training/` has the scripts; your own recordings are never used for it.
+I've also started fine-tuning smaller models so slower Macs can do cleanup locally. `training/` has the scripts; the data is all free datasets plus synthetic pairs, and your own recordings are never used. The 1.7B model is close to the 4B on my clips at about half the latency. Numbers in [training/RESULTS.md](training/RESULTS.md).
 
 ## Connecting an AI assistant
 
