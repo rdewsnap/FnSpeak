@@ -181,6 +181,8 @@ pub enum TermSource {
     User,
     Correction,
     Learned,
+    /// The shared glossary of the user's teams on a Flowstate server.
+    Team,
 }
 
 impl From<TermSource> for vocab::Source {
@@ -192,6 +194,7 @@ impl From<TermSource> for vocab::Source {
             TermSource::User => vocab::Source::User,
             TermSource::Correction => vocab::Source::Correction,
             TermSource::Learned => vocab::Source::Learned,
+            TermSource::Team => vocab::Source::Team,
         }
     }
 }
@@ -811,6 +814,7 @@ fn source_name(s: vocab::Source) -> String {
         vocab::Source::User => "user",
         vocab::Source::Correction => "correction",
         vocab::Source::Learned => "learned",
+        vocab::Source::Team => "team",
     }
     .to_string()
 }

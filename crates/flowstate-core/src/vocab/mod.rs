@@ -46,6 +46,8 @@ pub enum Source {
     Correction,
     /// Spellings picked up from the user editing dictated text.
     Learned,
+    /// A shared glossary pulled from the user's teams on a Flowstate server.
+    Team,
 }
 
 impl Source {
@@ -57,13 +59,14 @@ impl Source {
             Source::User => "user",
             Source::Correction => "correction",
             Source::Learned => "learned",
+            Source::Team => "team",
         }
     }
 
     /// Terms the user added or corrected themselves are the most trustworthy.
     fn default_weight(self) -> f64 {
         match self {
-            Source::User | Source::Correction | Source::Learned => 2.0,
+            Source::User | Source::Correction | Source::Learned | Source::Team => 2.0,
             Source::Contact | Source::Project => 1.0,
             Source::Calendar => 0.8,
         }
@@ -496,6 +499,7 @@ fn parse_source(s: &str) -> Source {
         "calendar" => Source::Calendar,
         "correction" => Source::Correction,
         "learned" => Source::Learned,
+        "team" => Source::Team,
         _ => Source::User,
     }
 }
@@ -555,6 +559,16 @@ mod tests {
         let text = "review the PG vector migration";
         let s = v.suggest(text).unwrap();
         assert_eq!(apply_suggestions(text, &s, AUTO_APPLY_SCORE), "review the pgvector migration");
+    }
+
+    #[test]
+    fn team_terms_round_trip_and_replace_only_their_source() {
+        let mut v = index();
+        v.replace_source(Source::Team, ["Kubernetes", "Flowstate Cloud"]).unwrap();
+        v.replace_source(Source::Team, ["Flowstate Cloud"]).unwrap();
+        let team: Vec<String> = v.terms(Some(Source::Team)).unwrap().into_iter().map(|t| t.text).collect();
+        assert_eq!(team, vec!["Flowstate Cloud".to_string()]);
+        assert!(v.terms(None).unwrap().iter().any(|t| t.text == "Kinju" && t.source == Source::Project));
     }
 
     #[test]
