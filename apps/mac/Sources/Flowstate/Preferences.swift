@@ -61,6 +61,11 @@ final class Preferences: ObservableObject {
     /// `hold`, `toggle` or `both` (hold, or double-tap for hands-free).
     @Published var triggerStyle: String { didSet { defaults.set(triggerStyle, forKey: "triggerStyle") } }
     @Published var escapeCancels: Bool { didSet { defaults.set(escapeCancels, forKey: "escapeCancels") } }
+    @Published var autoStopEnabled: Bool { didSet { defaults.set(autoStopEnabled, forKey: "autoStopEnabled") } }
+    /// Seconds of silence, after speech, before a recording ends by itself.
+    @Published var autoStopSeconds: Double { didSet { defaults.set(autoStopSeconds, forKey: "autoStopSeconds") } }
+    /// An `AudioInput` id; empty is the system default.
+    @Published var microphoneId: String { didSet { defaults.set(microphoneId, forKey: "microphoneId") } }
 
     private init() {
         onboarded = defaults.bool(forKey: "onboarded")
@@ -88,6 +93,9 @@ final class Preferences: ObservableObject {
             ?? Int(NSEvent.ModifierFlags([.control, .option]).rawValue)
         triggerStyle = defaults.string(forKey: "triggerStyle") ?? "both"
         escapeCancels = defaults.object(forKey: "escapeCancels") as? Bool ?? true
+        autoStopEnabled = defaults.object(forKey: "autoStopEnabled") as? Bool ?? false
+        autoStopSeconds = defaults.object(forKey: "autoStopSeconds") as? Double ?? 3
+        microphoneId = defaults.string(forKey: "microphoneId") ?? ""
     }
 
     var customHotkey: Hotkey {

@@ -12,6 +12,7 @@ final class AudioRecorder {
     private var samples: [Float] = []
     private let lock = NSLock()
     private(set) var isRecording = false
+    private var appliedMicrophone = ""
 
     static func requestPermission(_ completion: @escaping (Bool) -> Void) {
         AVCaptureDevice.requestAccess(for: .audio) { granted in
@@ -26,6 +27,13 @@ final class AudioRecorder {
     func start() throws {
         guard !isRecording else { return }
         lock.withLock { samples.removeAll(keepingCapacity: true) }
+
+        let microphone = Preferences.shared.microphoneId
+        if microphone != appliedMicrophone {
+            engine.reset()
+            appliedMicrophone = microphone
+        }
+        AudioDevices.apply(selected: microphone, to: engine)
 
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)

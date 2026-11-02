@@ -22,13 +22,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Captured when recording starts, so the text goes where the user was.
     private var pendingContext: Context?
     private var lastInsert: (text: String, appId: String)?
+    private var heardSpeech = false
+    private var silentSince: Date?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainMenu.install(target: self, settings: #selector(openSettings), about: #selector(openAbout))
         setUpStatusItem()
         applyPresentation()
         prefsObserver = prefs.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] in self?.applyPresentation() }
-        recorder.onLevel = { [weak self] in self?.overlay.setLevel($0) }
+        recorder.onLevel = { [weak self] in self?.handleLevel($0) }
         hotkeys.onStart = { [weak self] in self?.startRecording() ?? false }
         hotkeys.onFinish = { [weak self] in self?.finishRecording() }
         hotkeys.onCancel = { [weak self] in self?.cancelRecording() }
@@ -66,6 +68,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pendingContext = ContextReader.current()
         do {
             try recorder.start()
+            heardSpeech = false
+            silentSince = nil
             Sounds.start()
             phase = .listening
             overlay.show(.listening(handsFree: prefs.triggerStyle == "toggle"))
@@ -105,6 +109,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .failure(let error):
                 self.overlay.show(.error(Overlay.reason(for: error)))
             }
+        }
+    }
+
+    private func handleLevel(_ level: Float) {
+        overlay.setLevel(level)
+        guard phase == .listening, prefs.autoStopEnabled else { return }
+        if level > 0.12 {
+            heardSpeech = true
+            silentSince = nil
+            return
+        }
+        // Only a pause after speech counts, not the quiet before you start.
+        guard heardSpeech else { return }
+        let since = silentSince ?? Date()
+        silentSince = since
+        if Date().timeIntervalSince(since) >= prefs.autoStopSeconds {
+            hotkeys.recordingEnded()
+            finishRecording()
         }
     }
 
