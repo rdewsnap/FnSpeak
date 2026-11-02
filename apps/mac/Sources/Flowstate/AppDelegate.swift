@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let editWatcher = EditWatcher()
     private lazy var indexer = PersonalIndexer(engine: engine)
     private let notes = NotesController.shared
+    private lazy var meetings = MeetingController(engine: engine, overlay: overlay)
 
     private var statusItem: NSStatusItem!
     private var settingsController: SettingsWindowController?
@@ -42,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editWatcher.onEdit = { [weak self] in self?.learn(inserted: $0, edited: $1) }
         notes.start(engine: engine, toggleMic: { [weak self] in self?.toggleNoteDictation() },
                     isListening: { [weak self] in self?.phase == .listening })
+        meetings.onRecordingChange = { [weak self] in self?.updateStatusIcon() }
 
         if prefs.onboarded {
             begin()
@@ -55,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         started = true
         engine.load()
         hotkeys.start()
+        meetings.begin()
         // Contacts and Calendar prompts wait until onboarding is done.
         if prefs.onboarded { scheduleIndexing() }
     }
@@ -206,6 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         statusItem.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+        if meetings.isRecording { statusItem.button?.image = MeetingStatusBadge.badge(statusItem.button?.image) }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -360,6 +364,8 @@ extension AppDelegate: NSMenuDelegate {
         menu.addItem(recents)
         menu.addItem(.separator())
         notes.addMenuItems(to: menu)
+        meetings.addMenuItems(to: menu)
+        menu.addItem(.separator())
 
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self

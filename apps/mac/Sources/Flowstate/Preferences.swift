@@ -279,3 +279,46 @@ extension Preferences {
         set { store(newValue, "mcpAllowWrite") }
     }
 }
+
+// MARK: - Meetings
+
+extension Preferences {
+    /// Suggest recording when a call app and a calendar event coincide.
+    var meetingAutoDetect: Bool {
+        get { defaults.object(forKey: "meetingAutoDetect") as? Bool ?? true }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "meetingAutoDetect") }
+    }
+
+    /// Record the other side of the call (needs Screen Recording permission).
+    var meetingSystemAudio: Bool {
+        get { defaults.object(forKey: "meetingSystemAudio") as? Bool ?? true }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "meetingSystemAudio") }
+    }
+
+    /// Show the title and participants before recording starts.
+    var meetingAskTitle: Bool {
+        get { defaults.object(forKey: "meetingAskTitle") as? Bool ?? false }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "meetingAskTitle") }
+    }
+
+    /// Where Export Markdown suggests saving.
+    var meetingExportFolder: String {
+        get {
+            defaults.string(forKey: "meetingExportFolder")
+                ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents").path
+        }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "meetingExportFolder") }
+    }
+
+    /// Delete meeting transcripts older than this many days; 0 keeps them.
+    var meetingRetentionDays: Int {
+        get { defaults.object(forKey: "meetingRetentionDays") as? Int ?? 0 }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "meetingRetentionDays") }
+    }
+
+    /// Meeting id → tasks of the action items ticked off in Flowstate.
+    var meetingActionItemsDone: [String: [String]] {
+        get { defaults.dictionary(forKey: "meetingActionItemsDone") as? [String: [String]] ?? [:] }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "meetingActionItemsDone") }
+    }
+}
