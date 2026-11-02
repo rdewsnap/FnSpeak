@@ -6,7 +6,7 @@ use axum::Router;
 use flowstate_server::mail::{Mail, Mailer};
 use flowstate_server::{router, AppState, Config};
 use http_body_util::BodyExt;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use tower::ServiceExt;
 
@@ -82,4 +82,21 @@ impl TestApp {
         assert_eq!(status, StatusCode::OK, "{body}");
         body["token"].as_str().unwrap().to_string()
     }
+}
+
+/// Owner creates a team and invites `member`, who accepts. Returns
+/// (owner token, member token, team id).
+pub async fn team_with_member(app: &TestApp, owner: &str, member: &str) -> (String, String, String) {
+    let owner_token = app.sign_in(owner).await;
+    let member_token = app.sign_in(member).await;
+    let (status, team) = app.post("/v1/teams", &owner_token, json!({ "name": "Platform" })).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let team_id = team["id"].as_str().unwrap().to_string();
+
+    let (status, _) = app.post(&format!("/v1/teams/{team_id}/invites"), &owner_token, json!({ "email": member })).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let invite = app.last_token_for(member, "/v1/invites/");
+    let (status, body) = app.post(&format!("/v1/invites/{invite}/accept"), &member_token, json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    (owner_token, member_token, team_id)
 }

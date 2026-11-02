@@ -8,6 +8,8 @@ pub mod db;
 pub mod error;
 pub mod mail;
 pub mod ratelimit;
+pub mod store;
+pub mod sync;
 pub mod teams;
 
 use axum::extract::{DefaultBodyLimit, MatchedPath};
@@ -54,7 +56,13 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/teams/{id}/invites/{invite_id}", delete(teams::revoke_invite))
         .route("/v1/teams/{id}/members/{user_id}", patch(teams::set_role).delete(teams::remove_member))
         .route("/v1/invites/{token}", get(teams::show_invite))
-        .route("/v1/invites/{token}/accept", post(teams::accept_invite));
+        .route("/v1/invites/{token}/accept", post(teams::accept_invite))
+        .route("/v1/notes", get(sync::list_notes))
+        .route("/v1/notes/{id}", get(sync::get_note).put(sync::put_note).delete(sync::delete_note))
+        .route("/v1/meetings", get(sync::list_meetings))
+        .route("/v1/meetings/{id}", get(sync::get_meeting).put(sync::put_meeting).delete(sync::delete_meeting))
+        .route("/v1/sync", get(sync::pull).post(sync::push))
+        .route("/v1/search", get(sync::search));
 
     Router::new()
         .route("/healthz", get(healthz))

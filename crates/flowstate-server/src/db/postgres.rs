@@ -8,6 +8,7 @@ use std::borrow::Cow;
 const MIGRATIONS: &[(i64, &str, &str)] = &[
     (1, "accounts", include_str!("../../migrations/postgres/0001_accounts.sql")),
     (2, "invites", include_str!("../../migrations/postgres/0002_invites.sql")),
+    (3, "notes_meetings", include_str!("../../migrations/postgres/0003_notes_meetings.sql")),
 ];
 
 pub struct Postgres {

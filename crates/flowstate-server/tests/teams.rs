@@ -1,25 +1,8 @@
 mod common;
 
 use axum::http::StatusCode;
-use common::TestApp;
+use common::{team_with_member, TestApp};
 use serde_json::{json, Value};
-
-/// Owner creates a team and invites `member`, who accepts. Returns
-/// (owner token, member token, team id).
-pub async fn team_with_member(app: &TestApp, owner: &str, member: &str) -> (String, String, String) {
-    let owner_token = app.sign_in(owner).await;
-    let member_token = app.sign_in(member).await;
-    let (status, team) = app.post("/v1/teams", &owner_token, json!({ "name": "Platform" })).await;
-    assert_eq!(status, StatusCode::CREATED);
-    let team_id = team["id"].as_str().unwrap().to_string();
-
-    let (status, _) = app.post(&format!("/v1/teams/{team_id}/invites"), &owner_token, json!({ "email": member })).await;
-    assert_eq!(status, StatusCode::CREATED);
-    let invite = app.last_token_for(member, "/v1/invites/");
-    let (status, body) = app.post(&format!("/v1/invites/{invite}/accept"), &member_token, json!({})).await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    (owner_token, member_token, team_id)
-}
 
 #[tokio::test]
 async fn create_team_invite_and_accept() {
