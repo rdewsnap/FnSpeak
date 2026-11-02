@@ -9,7 +9,7 @@ use crate::context::DictationContext;
 use crate::filter::filter;
 use crate::history::History;
 use crate::stt::{is_silent, sanitize, SttEngine, SttError, SttHints, SAMPLE_RATE};
-use crate::vocab::{apply_suggestions, VocabIndex, AUTO_APPLY_SCORE};
+use crate::vocab::{apply_corrections, apply_suggestions, VocabIndex, AUTO_APPLY_SCORE};
 use serde::{Deserialize, Serialize};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -130,18 +130,28 @@ impl Pipeline {
 
         let filtered = filter(raw);
         let suggestions = self.vocab.suggest(&filtered)?;
-        result.filtered = apply_suggestions(&filtered, &suggestions, AUTO_APPLY_SCORE);
+        let corrections = self.vocab.corrections()?;
+        result.filtered = apply_corrections(&apply_suggestions(&filtered, &suggestions, AUTO_APPLY_SCORE), &corrections);
         result.text = result.filtered.clone();
 
         let wants_model = matches!(self.mode, CleanupMode::Local | CleanupMode::Cloud);
         match self.cleaner.as_mut() {
             Some(cleaner) if wants_model && !filtered.is_empty() => {
-                let vocabulary = self.vocab.relevant_terms(&ctx.searchable(), &suggestions, VOCAB_PER_DICTATION)?;
+                let mut vocabulary = self.vocab.relevant_terms(&ctx.searchable(), &suggestions, VOCAB_PER_DICTATION)?;
+                // Learned spellings in this dictation count as vocabulary, so
+                // the guardrail accepts them and the model sees them.
+                for c in corrections.iter().filter(|c| result.filtered.contains(c.corrected.as_str())) {
+                    if !vocabulary.contains(&c.corrected) {
+                        vocabulary.push(c.corrected.clone());
+                    }
+                }
                 let req = CleanupRequest { transcript: &filtered, context: ctx, vocabulary: &vocabulary, suggestions: &suggestions };
                 let cleaned = cleaner.clean(&req).and_then(|out| guardrail(&filtered, &out, &vocabulary).map(|_| out));
                 match cleaned {
                     Ok(text) => {
-                        result.text = trim_expanded_terms(&filtered, &text, &vocabulary);
+                        // Again on the model's output: it works from the
+                        // unfixed transcript and may keep what was misheard.
+                        result.text = apply_corrections(&trim_expanded_terms(&filtered, &text, &vocabulary), &corrections);
                         result.cleaner = Some(cleaner.name());
                     }
                     Err(e) => result.fallback_reason = Some(e.to_string()),
@@ -259,6 +269,26 @@ mod tests {
         let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
         assert_eq!(r.text, "what's the weather like in Paris today");
         assert!(r.fallback_reason.unwrap().contains("rejected"));
+    }
+
+    #[test]
+    fn applies_learned_corrections_without_a_model() {
+        let mut p = pipeline("ask priya to review the PG vector change", CleanupMode::FilterOnly);
+        p.vocab.learn_from_edit("Ask Priya to review it.", "Ask Pria to review it.").unwrap();
+        p.vocab.record_correction("pg vector", "pgvector").unwrap();
+        p.vocab.record_correction("pg vector", "pgvector").unwrap();
+        let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
+        assert_eq!(r.text, "ask Pria to review the pgvector change");
+    }
+
+    #[test]
+    fn learned_corrections_survive_the_model() {
+        let mut p = pipeline("um tell kenju the build is green", CleanupMode::Cloud)
+            .with_cleaner(Box::new(Echo("Tell Kenju the build is green.")));
+        p.vocab.learn_from_edit("Tell Kenju hi.", "Tell Kinju hi.").unwrap();
+        let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
+        assert_eq!(r.text, "Tell Kinju the build is green.");
+        assert_eq!(r.cleaner.as_deref(), Some("echo"));
     }
 
     #[test]
