@@ -66,10 +66,10 @@ struct NoteEditorView: View {
         .onChange(of: bodyText) { changed() }
         .onChange(of: tagsText) { changed() }
         .onChange(of: note.updatedAt) { refreshFromStore() }
-        .onAppear { model.flushEditor = { saveNow() } }
+        .onAppear { model.editorAppeared(note.id) { saveNow() } }
         .onDisappear {
             saveNow()
-            model.flushEditor = nil
+            model.editorDisappeared(note.id)
         }
     }
 
@@ -130,7 +130,7 @@ struct NoteEditorView: View {
     }
 
     private func changed() {
-        guard title != note.title || bodyText != note.bodyMd || tagsText != Self.tagsString(note.tags) else { return }
+        guard title != note.title || bodyText != note.bodyMd || Set(tags) != Set(note.tags) else { return }
         dirty = true
         saveToken += 1
         let token = saveToken
@@ -159,8 +159,7 @@ struct NoteEditorView: View {
         guard !dirty else { return }
         if title != note.title { title = note.title }
         if bodyText != note.bodyMd { bodyText = note.bodyMd }
-        let stored = Self.tagsString(note.tags)
-        if Set(tags) != Set(note.tags) { tagsText = stored }
+        if Set(tags) != Set(note.tags) { tagsText = Self.tagsString(note.tags) }
     }
 
     private func revealInFinder() {

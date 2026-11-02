@@ -47,7 +47,11 @@ final class NotesBar: NSObject, NSWindowDelegate {
 
         let view = NotesBarView(
             model: model,
-            onReady: { [weak self] in self?.textView = $0 },
+            onReady: { [weak self] text in
+                // The field is created after the first show() asked for focus.
+                self?.textView = text
+                if self?.panel.isVisible == true { self?.panel.makeFirstResponder(text) }
+            },
             onSubmit: { [weak self] in self?.submit() },
             onCancel: { [weak self] in self?.hide() },
             onMove: { [weak self] in self?.moveSelection($0) ?? false },

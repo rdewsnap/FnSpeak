@@ -55,7 +55,7 @@ final class NotesWindowModel: ObservableObject {
     @Published private(set) var deleted: Note?
 
     /// Saves the open editor's pending changes; set by the editor.
-    var flushEditor: (() -> Void)?
+    private var flushEditor: (id: Int64, save: () -> Void)?
 
     private let store = NotesStore.shared
     private var revisionObserver: AnyCancellable?
@@ -85,7 +85,17 @@ final class NotesWindowModel: ObservableObject {
     }
 
     func flush() {
-        flushEditor?()
+        flushEditor?.save()
+    }
+
+    /// The editor for note `id` appeared. When switching notes the new
+    /// editor can appear before the old one goes, hence the id.
+    func editorAppeared(_ id: Int64, save: @escaping () -> Void) {
+        flushEditor = (id, save)
+    }
+
+    func editorDisappeared(_ id: Int64) {
+        if flushEditor?.id == id { flushEditor = nil }
     }
 
     func select(_ hit: SearchHit) {
