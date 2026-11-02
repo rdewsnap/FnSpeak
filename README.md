@@ -72,6 +72,10 @@ I've also started on fine-tuning a smaller model so slower Macs can do cleanup l
 
 Or for Claude Code: `claude mcp add flowstate -- /Applications/Flowstate.app/Contents/MacOS/flowstate-mcp`. Add `--allow-write` if you want the assistant to be able to save notes.
 
+## Sync and teams
+
+Everything above works with no account. If you want your notes on two Macs, a shared glossary with your team, or cleanup without running a model or managing a key, the app can sign in to a server. The server is in this repo (`crates/flowstate-server`), one binary, SQLite or Postgres, docker compose in `deploy/`. Run your own or use mine once it's up. Either way audio never leaves your Mac; the server only sees text you choose to sync.
+
 ## Layout
 
 ```
@@ -79,9 +83,11 @@ crates/flowstate-core     the pipeline: STT, filter, vocabulary, cleanup, comman
 crates/flowstate-ffi      UniFFI bindings for the Mac app
 crates/flowstate-mcp      the local MCP server
 crates/flowstate-bench    benchmark CLI
+crates/flowstate-server   optional backend: accounts, teams, sync, hosted cleanup
 apps/mac                  the menu bar app (Swift)
 prompts/                  model prompts
 training/                 data prep and fine-tuning
+deploy/                   Dockerfile, compose, Fly config
 ```
 
 Contributions welcome; see CONTRIBUTING.md for how branches work here.
