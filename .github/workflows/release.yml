@@ -1,0 +1,162 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  TAG: ${{ github.ref_name }}
+
+jobs:
+  release:
+    name: Build, sign and publish
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      # Signing and notarization only run when every secret is set, so a fork
+      # without them still gets an ad-hoc-signed zip.
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+      DEVELOPER_ID_CERT_P12_BASE64: ${{ secrets.DEVELOPER_ID_CERT_P12_BASE64 }}
+      DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out version and whether we can notarize
+        id: meta
+        run: |
+          version="${TAG#v}"
+          plist_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' apps/mac/Support/Info.plist)"
+          cargo_version="$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p;}' Cargo.toml)"
+          if [ "$version" != "$plist_version" ] || [ "$version" != "$cargo_version" ]; then
+            echo "::error::tag $TAG does not match Cargo.toml ($cargo_version) and Info.plist ($plist_version). Cut releases with scripts/release.sh."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_TEAM_ID" ] && [ -n "$APPLE_APP_PASSWORD" ] \
+             && [ -n "$DEVELOPER_ID_CERT_P12_BASE64" ] && [ -n "$DEVELOPER_ID_CERT_PASSWORD" ]; then
+            echo "notarize=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "notarize=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Apple signing secrets are not all set; building an ad-hoc-signed, un-notarized app."
+          fi
+          case "$version" in
+            *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Read pinned llama.cpp commit
+        id: llama
+        run: |
+          ref="$(sed -n 's/.*LLAMA_CPP_REF:-\([0-9a-f]\{40\}\)}.*/\1/p' scripts/build-llama-server.sh)"
+          [ -n "$ref" ] || { echo "::error::could not find the pinned llama.cpp commit"; exit 1; }
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Cache llama-server
+        id: llama-cache
+        uses: actions/cache@v4
+        with:
+          path: build/llama-server
+          key: llama-server-${{ runner.os }}-${{ runner.arch }}-${{ steps.llama.outputs.ref }}-${{ hashFiles('scripts/build-llama-server.sh') }}
+
+      - name: Build llama-server
+        if: steps.llama-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p build
+          scripts/build-llama-server.sh
+
+      - name: Build Flowstate.app
+        env:
+          LLAMA_SERVER: ${{ github.workspace }}/build/llama-server
+        run: scripts/build-mac.sh
+
+      - name: Sign and notarize the app
+        if: steps.meta.outputs.notarize == 'true'
+        run: scripts/notarize.sh build/Flowstate.app
+
+      - name: Package dmg and zip
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          mkdir -p dist
+          scripts/make-dmg.sh build/Flowstate.app "dist/Flowstate-$VERSION.dmg"
+          ditto -c -k --keepParent build/Flowstate.app "dist/Flowstate-$VERSION.zip"
+
+      - name: Sign and notarize the dmg
+        if: steps.meta.outputs.notarize == 'true'
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: scripts/notarize.sh "dist/Flowstate-$VERSION.dmg"
+
+      - name: Checksums
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        working-directory: dist
+        run: |
+          shasum -a 256 "Flowstate-$VERSION.dmg" "Flowstate-$VERSION.zip" | tee SHA256SUMS
+
+      - name: Collect release notes
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          NOTARIZED: ${{ steps.meta.outputs.notarize }}
+        run: |
+          : > notes.md
+          # Use the matching CHANGELOG.md section when the repo has one.
+          if [ -f CHANGELOG.md ]; then
+            awk -v v="$VERSION" '
+              /^## / { if (found) exit; if (index($0, v)) { found = 1; next } }
+              found { print }
+            ' CHANGELOG.md > notes.md
+          fi
+          if [ "$NOTARIZED" != "true" ]; then
+            {
+              echo
+              echo "> This build is ad-hoc signed and not notarized. macOS will ask you to approve it in System Settings > Privacy & Security on first launch."
+            } >> notes.md
+          fi
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+        run: |
+          flags=()
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          gh release create "$TAG" \
+            "dist/Flowstate-$VERSION.dmg" "dist/Flowstate-$VERSION.zip" dist/SHA256SUMS \
+            --title "Flowstate $VERSION" \
+            --generate-notes \
+            --notes-file notes.md \
+            --verify-tag \
+            "${flags[@]}"
+
+      - name: Job summary
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          NOTARIZED: ${{ steps.meta.outputs.notarize }}
+        run: |
+          {
+            echo "## Flowstate $VERSION"
+            echo
+            echo "Notarized: \`$NOTARIZED\`"
+            echo
+            echo "SHA-256, for the Homebrew cask (\`homebrew/flowstate.rb\`):"
+            echo
+            echo '```'
+            cat dist/SHA256SUMS
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
