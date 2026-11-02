@@ -106,6 +106,22 @@ final class EngineController: ObservableObject {
         queue.async { _ = try? engine.removeTerm(term: term) }
     }
 
+    /// Learn from the user editing a dictation; completes with what was learned.
+    func learnFromEdit(inserted: String, edited: String, completion: @escaping ([LearnedCorrection]) -> Void) {
+        guard let engine else { return }
+        queue.async {
+            let learned = (try? engine.learnFromEdit(inserted: inserted, finalText: edited)) ?? []
+            DispatchQueue.main.async { completion(learned) }
+        }
+    }
+
+    func forget(_ corrections: [LearnedCorrection]) {
+        guard let engine else { return }
+        queue.async {
+            for c in corrections { _ = try? engine.forgetCorrection(heard: c.heard, corrected: c.corrected) }
+        }
+    }
+
     func lastRaw() -> String? { engine?.lastRaw() }
 
     // MARK: - Config

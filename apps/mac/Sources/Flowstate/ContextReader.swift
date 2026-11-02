@@ -22,25 +22,35 @@ enum ContextReader {
             context.windowTitle = title
         }
 
-        let system = AXUIElementCreateSystemWide()
-        guard let focused = element(system, kAXFocusedUIElementAttribute) else { return context }
-        let role = string(focused, kAXRoleAttribute)
-        let subrole = string(focused, kAXSubroleAttribute)
-        if role == "AXSecureTextField" || subrole == "AXSecureTextField" { return context }
-
-        guard let value = string(focused, kAXValueAttribute) else { return context }
+        guard let focused = focusedTextElement(), let value = value(of: focused) else { return context }
         let text = value as NSString
-        var cursor = text.length
-        if let raw = copy(focused, kAXSelectedTextRangeAttribute), CFGetTypeID(raw) == AXValueGetTypeID() {
-            var range = CFRange()
-            if AXValueGetValue(raw as! AXValue, .cfRange, &range) {
-                cursor = min(max(range.location, 0), text.length)
-            }
-        }
+        let cursor = min(caret(in: focused) ?? text.length, text.length)
         // The core trims this further; cap it so huge documents stay cheap.
         let start = max(0, cursor - 2000)
         context.textBefore = text.substring(with: NSRange(location: start, length: cursor - start))
         return context
+    }
+
+    /// The focused element, unless it's a password field.
+    static func focusedTextElement() -> AXUIElement? {
+        guard AXIsProcessTrusted(),
+              let focused = element(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute) else { return nil }
+        let role = string(focused, kAXRoleAttribute)
+        let subrole = string(focused, kAXSubroleAttribute)
+        if role == "AXSecureTextField" || subrole == "AXSecureTextField" { return nil }
+        return focused
+    }
+
+    static func value(of element: AXUIElement) -> String? {
+        string(element, kAXValueAttribute)
+    }
+
+    /// Start of the selection, in UTF-16 units.
+    static func caret(in element: AXUIElement) -> Int? {
+        guard let raw = copy(element, kAXSelectedTextRangeAttribute), CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+        var range = CFRange()
+        guard AXValueGetValue(raw as! AXValue, .cfRange, &range) else { return nil }
+        return max(range.location, 0)
     }
 
     private static func copy(_ element: AXUIElement, _ name: String) -> CFTypeRef? {

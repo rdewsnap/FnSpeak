@@ -32,6 +32,8 @@ final class Preferences: ObservableObject {
     @Published var indexContacts: Bool { didSet { defaults.set(indexContacts, forKey: "indexContacts") } }
     @Published var indexCalendar: Bool { didSet { defaults.set(indexCalendar, forKey: "indexCalendar") } }
     @Published var historyDays: Int { didSet { defaults.set(historyDays, forKey: "historyDays") } }
+    /// Watch for the user fixing dictated words and learn the spelling.
+    @Published var learnFromCorrections: Bool { didSet { defaults.set(learnFromCorrections, forKey: "learnFromCorrections") } }
     /// Bundle id → `ax` or `type`, for apps where pasting doesn't work.
     @Published var insertionOverrides: [String: String] { didSet { defaults.set(insertionOverrides, forKey: "insertionOverrides") } }
 
@@ -48,6 +50,7 @@ final class Preferences: ObservableObject {
         indexContacts = defaults.object(forKey: "indexContacts") as? Bool ?? true
         indexCalendar = defaults.object(forKey: "indexCalendar") as? Bool ?? true
         historyDays = defaults.object(forKey: "historyDays") as? Int ?? 30
+        learnFromCorrections = defaults.object(forKey: "learnFromCorrections") as? Bool ?? true
         insertionOverrides = defaults.dictionary(forKey: "insertionOverrides") as? [String: String] ?? [:]
     }
 

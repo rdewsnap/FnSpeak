@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let recorder = AudioRecorder()
     private let hotkeys = HotkeyMonitor()
     private let overlay = Overlay()
+    private let editWatcher = EditWatcher()
     private lazy var indexer = PersonalIndexer(engine: engine)
 
     private var statusItem: NSStatusItem!
@@ -24,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeys.onFinish = { [weak self] in self?.finishRecording() }
         hotkeys.onCancel = { [weak self] in self?.cancelRecording() }
         hotkeys.onSwapToRaw = { [weak self] in self?.swapToRaw() }
+        editWatcher.onEdit = { [weak self] in self?.learn(inserted: $0, edited: $1) }
 
         if prefs.onboarded {
             begin()
@@ -42,6 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Dictation
 
     private func startRecording() {
+        // Whatever the user did to the last dictation, they're done with it.
+        editWatcher.finish()
         guard AudioRecorder.hasPermission else {
             overlay.show(.message("Flowstate needs microphone access"))
             return
@@ -74,6 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard !dictation.insert.isEmpty else { return }
                 TextInserter.insert(dictation.insert, bundleId: context.appId)
                 self.lastInsert = (dictation.insert, context.appId)
+                if self.prefs.learnFromCorrections { self.editWatcher.watch(dictation.insert) }
             case .failure(let error):
                 self.overlay.show(.message("Dictation failed: \(error.localizedDescription)"))
             }
@@ -91,6 +96,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               NSWorkspace.shared.frontmostApplication?.bundleIdentifier == last.appId else { return }
         TextInserter.replacePrevious(last.text.count, with: raw)
         lastInsert = (raw, last.appId)
+        if prefs.learnFromCorrections { editWatcher.watch(raw) }
+    }
+
+    private func learn(inserted: String, edited: String) {
+        guard prefs.learnFromCorrections else { return }
+        engine.learnFromEdit(inserted: inserted, edited: edited) { _ in }
     }
 
     // MARK: - UI
