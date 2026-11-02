@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 /// Embedded migrations, applied in order and tracked with `PRAGMA user_version`.
 const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/sqlite/0001_accounts.sql"),
+    include_str!("../../migrations/sqlite/0002_invites.sql"),
 ];
 
 /// One connection behind a mutex. SQLite serializes writers anyway, and a

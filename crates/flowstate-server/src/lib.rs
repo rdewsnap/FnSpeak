@@ -8,10 +8,11 @@ pub mod db;
 pub mod error;
 pub mod mail;
 pub mod ratelimit;
+pub mod teams;
 
-use axum::extract::DefaultBodyLimit;
+use axum::extract::{DefaultBodyLimit, MatchedPath};
 use axum::http::{header, HeaderName, HeaderValue, Method, Request};
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use serde_json::json;
 use std::sync::Arc;
@@ -46,16 +47,25 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/auth/verify", get(auth::verify_page).post(auth::verify))
         .route("/v1/me", get(auth::me))
         .route("/v1/tokens", get(auth::list_tokens).post(auth::create_token))
-        .route("/v1/tokens/{id}", delete(auth::delete_token));
+        .route("/v1/tokens/{id}", delete(auth::delete_token))
+        .route("/v1/teams", get(teams::list).post(teams::create))
+        .route("/v1/teams/{id}", get(teams::get).patch(teams::update))
+        .route("/v1/teams/{id}/invites", get(teams::list_invites).post(teams::invite))
+        .route("/v1/teams/{id}/invites/{invite_id}", delete(teams::revoke_invite))
+        .route("/v1/teams/{id}/members/{user_id}", patch(teams::set_role).delete(teams::remove_member))
+        .route("/v1/invites/{token}", get(teams::show_invite))
+        .route("/v1/invites/{token}/accept", post(teams::accept_invite));
 
     Router::new()
         .route("/healthz", get(healthz))
         .merge(api)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(cors(&state.config))
-        // Log the path only: query strings can carry sign-in tokens.
+        // Log the route pattern, not the URI: paths and query strings can
+        // carry sign-in and invite tokens.
         .layer(TraceLayer::new_for_http().make_span_with(|req: &Request<_>| {
-            tracing::info_span!("request", method = %req.method(), path = %req.uri().path())
+            let route = req.extensions().get::<MatchedPath>().map(MatchedPath::as_str).unwrap_or("-");
+            tracing::info_span!("request", method = %req.method(), route = %route)
         }))
         .with_state(state)
 }
