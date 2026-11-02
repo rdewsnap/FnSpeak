@@ -19,6 +19,7 @@ cd "$(dirname "$0")"
 BASE="${BASE:-Qwen/Qwen3-1.7B}"
 ITERS="${ITERS:-1200}"
 BATCH="${BATCH:-8}"
+GRAD_ACCUM="${GRAD_ACCUM:-1}"  # larger models: BATCH=4 GRAD_ACCUM=2 keeps the effective batch in less memory
 LAYERS="${LAYERS:-16}"
 RANK="${RANK:-16}"
 LR="${LR:-1e-4}"
@@ -38,14 +39,14 @@ lora_parameters:
   dropout: 0.0
 lr_schedule:
   name: cosine_decay
-  warmup: $((ITERS / 20))
-  arguments: [$LR, $ITERS, $(python3 -c "print($LR / 10)")]
+  warmup: $((ITERS / GRAD_ACCUM / 20))
+  arguments: [$LR, $((ITERS / GRAD_ACCUM)), $(python3 -c "print($LR / 10)")]
 EOF
 
 if [[ "${SKIP_TRAIN:-}" != 1 ]]; then
     nice uv run mlx_lm.lora -c "$OUT/lora.yaml" \
         --model "$BASE" --train --data "$DATA" \
-        --iters "$ITERS" --batch-size "$BATCH" --num-layers "$LAYERS" --learning-rate "$LR" \
+        --iters "$ITERS" --batch-size "$BATCH" --grad-accumulation-steps "$GRAD_ACCUM" --num-layers "$LAYERS" --learning-rate "$LR" \
         --steps-per-eval "$EVAL_EVERY" --val-batches 25 --save-every "$EVAL_EVERY" \
         --max-seq-length 2048 ${GRAD_CHECKPOINT:+--grad-checkpoint} \
         --mask-prompt --adapter-path "$OUT/adapters" 2>&1 | tee "$OUT/train.log"
