@@ -38,6 +38,10 @@ final class Preferences: ObservableObject {
     /// Bundle id → `ax` or `type`, for apps where pasting doesn't work.
     @Published var insertionOverrides: [String: String] { didSet { defaults.set(insertionOverrides, forKey: "insertionOverrides") } }
 
+    /// Bundle ids where Flowstate neither listens nor reads context.
+    @Published var excludedApps: [String] { didSet { defaults.set(excludedApps, forKey: "excludedApps") } }
+    @Published var readFocusedField: Bool { didSet { defaults.set(readFocusedField, forKey: "readFocusedField") } }
+
     /// App category → `WritingStyle`, where it differs from the default.
     @Published var categoryStyles: [String: String] { didSet { defaults.set(categoryStyles, forKey: "categoryStyles") } }
     /// Bundle id → `WritingStyle`.
@@ -87,6 +91,8 @@ final class Preferences: ObservableObject {
         historyDays = defaults.object(forKey: "historyDays") as? Int ?? 30
         learnFromCorrections = defaults.object(forKey: "learnFromCorrections") as? Bool ?? true
         insertionOverrides = defaults.dictionary(forKey: "insertionOverrides") as? [String: String] ?? [:]
+        excludedApps = defaults.stringArray(forKey: "excludedApps") ?? []
+        readFocusedField = defaults.object(forKey: "readFocusedField") as? Bool ?? true
         categoryStyles = defaults.dictionary(forKey: "categoryStyles") as? [String: String] ?? [:]
         styleOverrides = defaults.dictionary(forKey: "styleOverrides") as? [String: String] ?? [:]
         showInMenuBar = defaults.object(forKey: "showInMenuBar") as? Bool ?? true

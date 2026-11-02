@@ -65,6 +65,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             overlay.show(.error("Microphone access is off"))
             return false
         }
+        if let front = NSWorkspace.shared.frontmostApplication,
+           let id = front.bundleIdentifier, prefs.excludedApps.contains(id) {
+            overlay.show(.message("Dictation is off in \(front.localizedName ?? "this app")"))
+            return false
+        }
         pendingContext = ContextReader.current()
         do {
             try recorder.start()

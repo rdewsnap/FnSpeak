@@ -14,7 +14,8 @@ enum ContextReader {
             url: nil,
             textBefore: ""
         )
-        guard AXIsProcessTrusted(), let pid = app?.processIdentifier else { return context }
+        let prefs = Preferences.shared
+        guard !prefs.excludedApps.contains(context.appId), AXIsProcessTrusted(), let pid = app?.processIdentifier else { return context }
 
         let appElement = AXUIElementCreateApplication(pid)
         if let window = element(appElement, kAXFocusedWindowAttribute),
@@ -22,6 +23,7 @@ enum ContextReader {
             context.windowTitle = title
         }
 
+        guard prefs.readFocusedField else { return context }
         guard let focused = focusedTextElement(), let value = value(of: focused) else { return context }
         let text = value as NSString
         let cursor = min(caret(in: focused) ?? text.length, text.length)
