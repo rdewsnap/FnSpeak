@@ -8,6 +8,7 @@ pub mod history;
 pub mod notes;
 pub mod pipeline;
 pub mod stt;
+pub mod summary;
 pub mod tier;
 pub mod vocab;
 
