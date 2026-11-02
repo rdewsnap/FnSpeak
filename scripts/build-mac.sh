@@ -38,6 +38,8 @@ echo "==> Assembling $OUT"
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Frameworks" "$OUT/Contents/Resources"
 cp "$BIN" "$OUT/Contents/MacOS/Flowstate"
+cargo build --release -p flowstate-mcp --manifest-path "$ROOT/Cargo.toml"
+cp "$ROOT/target/release/flowstate-mcp" "$OUT/Contents/MacOS/flowstate-mcp"
 cp "$APP_SRC/Support/Info.plist" "$OUT/Contents/Info.plist"
 cp "$LIBS"/*.dylib "$OUT/Contents/Frameworks/"
 if [[ -n "${LLAMA_SERVER:-}" ]]; then
@@ -50,6 +52,7 @@ for lib in "$OUT"/Contents/Frameworks/*.dylib; do
     codesign --force --sign "$SIGN_ID" "$lib"
 done
 [[ -f "$OUT/Contents/Resources/llama-server" ]] && codesign --force --sign "$SIGN_ID" "$OUT/Contents/Resources/llama-server"
+codesign --force --sign "$SIGN_ID" "$OUT/Contents/MacOS/flowstate-mcp"
 codesign --force --sign "$SIGN_ID" --entitlements "$APP_SRC/Support/Flowstate.entitlements" "$OUT"
 
 echo "==> Done: $OUT"
