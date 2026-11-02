@@ -101,7 +101,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func learn(inserted: String, edited: String) {
         guard prefs.learnFromCorrections else { return }
-        engine.learnFromEdit(inserted: inserted, edited: edited) { _ in }
+        engine.learnFromEdit(inserted: inserted, edited: edited) { [weak self] learned in
+            guard let self, !learned.isEmpty, self.overlay.isIdle else { return }
+            let names = learned.map(\.corrected).joined(separator: ", ")
+            self.overlay.showLearned("Learned \(names)") { [weak self] in self?.engine.forget(learned) }
+        }
     }
 
     // MARK: - UI
