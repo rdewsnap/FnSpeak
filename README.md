@@ -27,6 +27,8 @@ open build/Flowstate.app
 
 Homebrew's llama.cpp currently fails to compile its Metal shaders on macOS 15, which is why the second script builds a pinned version. First launch asks for microphone and Accessibility access and picks a cleanup mode based on your hardware.
 
+When there is a signed build it'll be on the Releases page as a `.dmg`, and `brew install --cask flowstate` once I've set up a tap.
+
 If Fn opens the emoji picker, set System Settings → Keyboard → "Press 🌐 key to" → Do Nothing.
 
 | | |
