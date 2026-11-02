@@ -1,12 +1,15 @@
 //! Personal vocabulary: the names and terms that generic dictation gets wrong.
 //!
 //! Terms come from sources (project folders, contacts, calendar, the user's
-//! own additions, and later their corrections) and live in SQLite. Lookup is
+//! own additions, and what they fixed after dictating) and live in SQLite. Lookup is
 //! phonetic rather than semantic: a misheard name is a sound-alike problem
 //! ("kin ju" → "Kinju"), so Double Metaphone codes do the heavy lifting and a
 //! string-similarity score breaks ties.
 
+pub mod learn;
 pub mod projects;
+
+pub use learn::{apply_corrections, corrections_from_edit, LearnedCorrection};
 
 use rphonetic::DoubleMetaphone;
 use rusqlite::{params, Connection};
@@ -41,6 +44,8 @@ pub enum Source {
     Calendar,
     User,
     Correction,
+    /// Spellings picked up from the user editing dictated text.
+    Learned,
 }
 
 impl Source {
@@ -51,13 +56,14 @@ impl Source {
             Source::Calendar => "calendar",
             Source::User => "user",
             Source::Correction => "correction",
+            Source::Learned => "learned",
         }
     }
 
     /// Terms the user added or corrected themselves are the most trustworthy.
     fn default_weight(self) -> f64 {
         match self {
-            Source::User | Source::Correction => 2.0,
+            Source::User | Source::Correction | Source::Learned => 2.0,
             Source::Contact | Source::Project => 1.0,
             Source::Calendar => 0.8,
         }
@@ -115,8 +121,8 @@ impl VocabIndex {
              );
              CREATE INDEX IF NOT EXISTS terms_phonetic ON terms (phonetic);
              CREATE INDEX IF NOT EXISTS terms_phonetic_alt ON terms (phonetic_alt);
-             -- Filled by the correction-learning loop (v2): what the user
-             -- said vs. what they changed it to after insertion.
+             -- What Flowstate wrote (lowercase words) vs. what the user
+             -- changed it to after insertion.
              CREATE TABLE IF NOT EXISTS corrections (
                  heard      TEXT NOT NULL,
                  corrected  TEXT NOT NULL,
@@ -289,9 +295,26 @@ impl VocabIndex {
         Ok(())
     }
 
-    /// Store a user correction (v2 learning loop) and promote the corrected
-    /// spelling into the vocabulary once it's been seen twice.
-    pub fn record_correction(&mut self, heard: &str, corrected: &str) -> Result<()> {
+    /// Compare inserted text with the user's edit of it and remember any
+    /// respellings. Returns the corrections that start applying as a result.
+    pub fn learn_from_edit(&mut self, inserted: &str, final_text: &str) -> Result<Vec<LearnedCorrection>> {
+        let mut learned = Vec::new();
+        for c in corrections_from_edit(inserted, final_text) {
+            if self.record_correction(&c.heard, &c.corrected)? {
+                learned.push(c);
+            }
+        }
+        Ok(learned)
+    }
+
+    /// Store a user correction. Once it's trusted (seen twice, or once if it's
+    /// spelled like a name and isn't an everyday word) the corrected spelling
+    /// joins the vocabulary. Returns true if this sighting made it trusted.
+    pub fn record_correction(&mut self, heard: &str, corrected: &str) -> Result<bool> {
+        let (heard, corrected) = (learn::heard_key(heard), corrected.trim());
+        if heard.is_empty() || corrected.is_empty() {
+            return Ok(false);
+        }
         self.conn.execute(
             "INSERT INTO corrections (heard, corrected, last_seen) VALUES (?1, ?2, ?3)
              ON CONFLICT (heard, corrected) DO UPDATE SET count = count + 1, last_seen = excluded.last_seen",
@@ -302,10 +325,55 @@ impl VocabIndex {
             params![heard, corrected],
             |r| r.get(0),
         )?;
-        if count >= 2 {
-            self.add_terms(Source::Correction, [corrected])?;
+        if !is_trusted(count, corrected) {
+            return Ok(false);
         }
-        Ok(())
+        // A term the user already has from another source doesn't need a
+        // learned copy.
+        let known: bool = self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM terms WHERE normalized = ?1)",
+            [normalize(corrected)],
+            |r| r.get(0),
+        )?;
+        if !known {
+            self.add_terms(Source::Learned, [corrected])?;
+        }
+        Ok(!is_trusted(count - 1, corrected))
+    }
+
+    /// Trusted corrections to apply to new dictations, best supported first.
+    /// Phrases made only of everyday words are left to the phonetic matcher,
+    /// which knows when not to touch them; a blanket "can" → "Kahn" would not.
+    pub fn corrections(&self) -> Result<Vec<LearnedCorrection>> {
+        let mut stmt =
+            self.conn.prepare_cached("SELECT heard, corrected, count FROM corrections ORDER BY count DESC, last_seen DESC")?;
+        let rows: Vec<(String, String, i64)> =
+            stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<std::result::Result<_, _>>()?;
+        let mut out: Vec<LearnedCorrection> = Vec::new();
+        for (heard, corrected, count) in rows {
+            if is_trusted(count, &corrected) && !learn::is_common_phrase(&heard) && !out.iter().any(|c| c.heard == heard) {
+                out.push(LearnedCorrection { heard, corrected });
+            }
+        }
+        Ok(out)
+    }
+
+    /// Undo a learned correction, and the learned term if nothing else
+    /// supports it.
+    pub fn forget_correction(&mut self, heard: &str, corrected: &str) -> Result<bool> {
+        let n = self.conn.execute(
+            "DELETE FROM corrections WHERE heard = ?1 AND corrected = ?2",
+            params![learn::heard_key(heard), corrected],
+        )?;
+        let still_used: bool =
+            self.conn.query_row("SELECT EXISTS (SELECT 1 FROM corrections WHERE corrected = ?1)", [corrected], |r| r.get(0))?;
+        if !still_used {
+            self.conn.execute(
+                "DELETE FROM terms WHERE normalized = ?1 AND source = ?2",
+                params![normalize(corrected), Source::Learned.as_str()],
+            )?;
+        }
+        Ok(n > 0)
     }
 
     pub fn terms(&self, source: Option<Source>) -> Result<Vec<Term>> {
@@ -325,7 +393,17 @@ impl VocabIndex {
     }
 
     pub fn remove_term(&mut self, term: &str) -> Result<bool> {
-        let n = self.conn.execute("DELETE FROM terms WHERE normalized = ?1", [normalize(term)])?;
+        let norm = normalize(term);
+        let n = self.conn.execute("DELETE FROM terms WHERE normalized = ?1", [&norm])?;
+        // Otherwise the corrections would keep writing the removed spelling.
+        let targets: Vec<String> = self
+            .conn
+            .prepare_cached("SELECT DISTINCT corrected FROM corrections")?
+            .query_map([], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?;
+        for corrected in targets.iter().filter(|c| normalize(c) == norm) {
+            self.conn.execute("DELETE FROM corrections WHERE corrected = ?1", [corrected])?;
+        }
         Ok(n > 0)
     }
 
@@ -417,8 +495,15 @@ fn parse_source(s: &str) -> Source {
         "contact" => Source::Contact,
         "calendar" => Source::Calendar,
         "correction" => Source::Correction,
+        "learned" => Source::Learned,
         _ => Source::User,
     }
+}
+
+/// Seen twice, or once when it's spelled like a name and isn't an everyday
+/// word: nobody retypes "Kinju" by accident.
+fn is_trusted(count: i64, corrected: &str) -> bool {
+    count >= 2 || (count >= 1 && learn::looks_like_name(corrected) && !learn::is_common_phrase(corrected))
 }
 
 fn now() -> i64 {
@@ -492,10 +577,66 @@ mod tests {
     #[test]
     fn corrections_promote_after_two() {
         let mut v = VocabIndex::in_memory().unwrap();
-        v.record_correction("flow state", "Flowstate").unwrap();
-        assert!(v.terms(Some(Source::Correction)).unwrap().is_empty());
-        v.record_correction("flow state", "Flowstate").unwrap();
-        assert_eq!(v.terms(Some(Source::Correction)).unwrap()[0].text, "Flowstate");
+        assert!(!v.record_correction("pg vector", "pgvector").unwrap());
+        assert!(v.terms(Some(Source::Learned)).unwrap().is_empty());
+        assert!(v.corrections().unwrap().is_empty());
+        assert!(v.record_correction("PG vector", "pgvector").unwrap());
+        assert_eq!(v.terms(Some(Source::Learned)).unwrap()[0].text, "pgvector");
+        assert_eq!(v.corrections().unwrap()[0].heard, "pg vector");
+    }
+
+    #[test]
+    fn names_promote_at_once() {
+        let mut v = VocabIndex::in_memory().unwrap();
+        let learned = v.learn_from_edit("Push the kin ju build.", "Push the Kinju build.").unwrap();
+        assert_eq!(learned, [LearnedCorrection { heard: "kin ju".into(), corrected: "Kinju".into() }]);
+        assert_eq!(v.terms(None).unwrap()[0].source, Source::Learned);
+        // Already trusted: seeing it again isn't news.
+        assert!(v.learn_from_edit("Push the kin ju build.", "Push the Kinju build.").unwrap().is_empty());
+    }
+
+    #[test]
+    fn learned_terms_reach_speech_hints() {
+        let mut v = index();
+        v.learn_from_edit("Ask Priya about it.", "Ask Pria about it.").unwrap();
+        assert!(v.relevant_terms("", &[], 40).unwrap().contains(&"Pria".to_string()));
+    }
+
+    #[test]
+    fn known_terms_are_not_duplicated() {
+        let mut v = index();
+        assert!(v.record_correction("kenju", "Kinju").unwrap());
+        assert!(v.terms(Some(Source::Learned)).unwrap().is_empty());
+        assert_eq!(v.corrections().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn common_heard_words_are_not_blanket_replaced() {
+        let mut v = VocabIndex::in_memory().unwrap();
+        v.record_correction("can", "Kahn").unwrap();
+        v.record_correction("can", "Kahn").unwrap();
+        assert!(v.corrections().unwrap().is_empty());
+        assert_eq!(v.terms(Some(Source::Learned)).unwrap()[0].text, "Kahn");
+    }
+
+    #[test]
+    fn forgetting_removes_the_learned_term() {
+        let mut v = VocabIndex::in_memory().unwrap();
+        v.learn_from_edit("Kenju is live.", "Kinju is live.").unwrap();
+        v.record_correction("kin ju", "Kinju").unwrap();
+        assert!(v.forget_correction("kenju", "Kinju").unwrap());
+        assert_eq!(v.terms(None).unwrap().len(), 1, "still backed by kin ju");
+        v.forget_correction("kin ju", "Kinju").unwrap();
+        assert!(v.terms(None).unwrap().is_empty());
+        assert!(v.corrections().unwrap().is_empty());
+    }
+
+    #[test]
+    fn removing_a_term_drops_its_corrections() {
+        let mut v = VocabIndex::in_memory().unwrap();
+        v.learn_from_edit("Kenju is live.", "Kinju is live.").unwrap();
+        assert!(v.remove_term("Kinju").unwrap());
+        assert!(v.corrections().unwrap().is_empty());
     }
 
     #[test]

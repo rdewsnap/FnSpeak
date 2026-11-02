@@ -273,7 +273,7 @@ impl FlowstateEngine {
 
     /// The user edited inserted text: learn the corrected spelling.
     pub fn record_correction(&self, heard: String, corrected: String) -> Result<(), FlowstateError> {
-        self.pipeline.lock().unwrap().vocab.record_correction(&heard, &corrected).map_err(storage_err)
+        self.pipeline.lock().unwrap().vocab.record_correction(&heard, &corrected).map(|_| ()).map_err(storage_err)
     }
 
     /// Raw transcript of the most recent dictation, for the swap-to-raw shortcut.
@@ -299,6 +299,7 @@ fn source_name(s: vocab::Source) -> String {
         vocab::Source::Calendar => "calendar",
         vocab::Source::User => "user",
         vocab::Source::Correction => "correction",
+        vocab::Source::Learned => "learned",
     }
     .to_string()
 }
