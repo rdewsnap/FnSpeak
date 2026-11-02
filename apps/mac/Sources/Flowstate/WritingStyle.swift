@@ -1,9 +1,28 @@
 import Foundation
 
-enum WritingStyle: String, CaseIterable, Identifiable {
-    case casual, prose, code
+/// `WritingStyle` comes from the core (casual, prose, code). Settings store it
+/// by name.
+extension WritingStyle: RawRepresentable, CaseIterable, Identifiable {
+    public static var allCases: [WritingStyle] { [.casual, .prose, .code] }
 
-    var id: String { rawValue }
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "casual": self = .casual
+        case "prose": self = .prose
+        case "code": self = .code
+        default: return nil
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .casual: return "casual"
+        case .prose: return "prose"
+        case .code: return "code"
+        }
+    }
+
+    public var id: String { rawValue }
 
     var label: String {
         switch self {

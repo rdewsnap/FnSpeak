@@ -45,7 +45,7 @@ struct CleanupTab: View {
                         ForEach(WritingStyle.allCases) { Text("\($0.label) — \($0.detail)").tag($0) }
                     }
                 }
-                Text("Not applied yet: the cleanup engine doesn't read style hints, so these are saved for when it does.")
+                Text("Used by the cleanup model in local and cloud modes. Apps outside these lists get a style picked from the app and the page you're on.")
                     .font(.callout).foregroundStyle(.secondary)
             }
 

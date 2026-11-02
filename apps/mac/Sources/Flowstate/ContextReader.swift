@@ -12,9 +12,13 @@ enum ContextReader {
             appName: app?.localizedName ?? "",
             windowTitle: "",
             url: nil,
-            textBefore: ""
+            textBefore: "",
+            style: nil
         )
         let prefs = Preferences.shared
+        // The style picked in settings for this app or its category; apps
+        // with neither are left to the core.
+        context.style = prefs.writingStyle(forApp: context.appId)
         guard !prefs.excludedApps.contains(context.appId), AXIsProcessTrusted(), let pid = app?.processIdentifier else { return context }
 
         let appElement = AXUIElementCreateApplication(pid)
