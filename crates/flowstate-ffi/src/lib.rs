@@ -160,8 +160,11 @@ impl From<Context> for DictationContext {
 pub struct Dictation {
     pub raw: String,
     pub text: String,
-    /// What to insert at the cursor.
+    /// What to insert at the cursor, line breaks from "new line" included.
     pub insert: String,
+    /// The dictation ended with "send it": press Return after inserting.
+    /// Only ever true after `set_send_command(true)`.
+    pub press_enter: bool,
     pub mode: Mode,
     pub cleaner: Option<String>,
     pub fallback_reason: Option<String>,
@@ -279,6 +282,7 @@ impl FlowstateEngine {
             raw: r.raw,
             text: r.text,
             insert: r.insert,
+            press_enter: r.press_enter,
             mode: r.mode.into(),
             cleaner: r.cleaner,
             fallback_reason: r.fallback_reason,
@@ -295,6 +299,12 @@ impl FlowstateEngine {
         p.mode = mode.into();
         p.set_cleaner(cleaner);
         Ok(())
+    }
+
+    /// Let "send it" / "send that" at the end of a dictation set
+    /// `press_enter`. Off by default: in a chat app it sends the message.
+    pub fn set_send_command(&self, enabled: bool) {
+        self.pipeline.lock().unwrap().send_command = enabled;
     }
 
     pub fn set_speech_engine(&self, speech: SpeechEngine) -> Result<(), FlowstateError> {

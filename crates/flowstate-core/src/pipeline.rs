@@ -1,10 +1,12 @@
-//! The whole dictation path: audio → speech-to-text → rule-based filter →
-//! vocabulary fixes → cleanup model → guardrail → text to insert.
+//! The whole dictation path: audio → speech-to-text → spoken commands at
+//! the end → rule-based filter → vocabulary fixes → cleanup model →
+//! guardrail → text to insert.
 //!
 //! Every step after speech-to-text has a safe fallback, so a slow or failing
 //! cleanup model never loses a dictation: the user gets the filtered text.
 
 use crate::cleanup::{guardrail, trim_expanded_terms, Cleaner, CleanupMode, CleanupRequest, Llm};
+use crate::commands::split_trailing;
 use crate::context::DictationContext;
 use crate::filter::filter;
 use crate::history::History;
@@ -39,8 +41,11 @@ pub struct DictationResult {
     pub filtered: String,
     /// The cleaned text, before adjusting it to the cursor position.
     pub text: String,
-    /// What to insert at the cursor (spacing and capitalization adjusted).
+    /// What to insert at the cursor (spacing and capitalization adjusted,
+    /// plus any line breaks asked for with "new line" or "new paragraph").
     pub insert: String,
+    /// The dictation ended with "send it": press Return after inserting.
+    pub press_enter: bool,
     pub mode: CleanupMode,
     /// Which cleanup model produced `text`, if one did.
     pub cleaner: Option<String>,
@@ -55,11 +60,13 @@ pub struct Pipeline {
     pub vocab: VocabIndex,
     pub history: Option<History>,
     pub mode: CleanupMode,
+    /// Treat "send it" / "send that" at the end as a request to press Return.
+    pub send_command: bool,
 }
 
 impl Pipeline {
     pub fn new(stt: Box<dyn SttEngine>, vocab: VocabIndex, mode: CleanupMode) -> Self {
-        Pipeline { stt, cleaner: None, vocab, history: None, mode }
+        Pipeline { stt, cleaner: None, vocab, history: None, mode, send_command: false }
     }
 
     pub fn with_cleaner(mut self, cleaner: Box<dyn Cleaner>) -> Self {
@@ -140,6 +147,7 @@ impl Pipeline {
             filtered: String::new(),
             text: String::new(),
             insert: String::new(),
+            press_enter: false,
             mode: self.mode,
             cleaner: None,
             fallback_reason: None,
@@ -155,7 +163,16 @@ impl Pipeline {
             return Ok(result);
         }
 
-        let filtered = filter(raw);
+        // "scratch that", "new line" and friends at the end are instructions,
+        // not text; the rest goes on as if they were never said.
+        let (spoken, trailing) = split_trailing(raw, self.send_command);
+        result.press_enter = trailing.press_enter;
+        if spoken.trim().is_empty() {
+            result.insert = trailing.breaks;
+            return Ok(result);
+        }
+
+        let filtered = filter(&spoken);
         let suggestions = self.vocab.suggest(&filtered)?;
         let corrections = self.vocab.corrections()?;
         result.filtered = apply_corrections(&apply_suggestions(&filtered, &suggestions, AUTO_APPLY_SCORE), &corrections);
@@ -189,7 +206,7 @@ impl Pipeline {
         }
 
         result.timings.cleanup_ms = started.elapsed().as_millis() as u64;
-        result.insert = fit_to_cursor(&result.text, ctx);
+        result.insert = fit_to_cursor(&result.text, ctx) + &trailing.breaks;
         Ok(result)
     }
 
@@ -316,6 +333,35 @@ mod tests {
         let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
         assert_eq!(r.text, "Tell Kinju the build is green.");
         assert_eq!(r.cleaner.as_deref(), Some("echo"));
+    }
+
+    #[test]
+    fn spoken_commands_at_the_end() {
+        let mut p = pipeline("Thanks for the update. Um wrong part. Scratch that. New paragraph.", CleanupMode::FilterOnly);
+        let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
+        assert_eq!((r.text.as_str(), r.insert.as_str(), r.press_enter), ("Thanks for the update.", "Thanks for the update.\n\n", false));
+
+        // "send it" only when the app allows it.
+        let mut p = pipeline("On my way. Send it.", CleanupMode::FilterOnly);
+        assert_eq!(p.dictate(&speech(), &DictationContext::default()).unwrap().text, "On my way. Send it.");
+        p.send_command = true;
+        let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
+        assert_eq!((r.insert.as_str(), r.press_enter), ("On my way.", true));
+
+        // Without a pause before it, it's just words.
+        let mut p = pipeline("add a new line", CleanupMode::FilterOnly);
+        assert_eq!(p.dictate(&speech(), &DictationContext::default()).unwrap().insert, "add a new line");
+
+        // The model never sees the command.
+        let mut p = pipeline("Ship it Friday. New line.", CleanupMode::Cloud).with_cleaner(Box::new(Echo("Ship it Friday.")));
+        let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
+        assert_eq!((r.insert.as_str(), r.cleaner.as_deref()), ("Ship it Friday.\n", Some("echo")));
+
+        // A command on its own still does something.
+        let mut p = pipeline("Send it.", CleanupMode::FilterOnly);
+        p.send_command = true;
+        let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
+        assert_eq!((r.insert.as_str(), r.press_enter), ("", true));
     }
 
     #[test]
