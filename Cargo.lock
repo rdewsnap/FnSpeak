@@ -943,7 +943,7 @@ dependencies = [
 
 [[package]]
 name = "flowstate-bench"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -955,7 +955,7 @@ dependencies = [
 
 [[package]]
 name = "flowstate-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "regex",
@@ -974,7 +974,7 @@ dependencies = [
 
 [[package]]
 name = "flowstate-ffi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "flowstate-core",
  "thiserror 2.0.21",
@@ -983,7 +983,7 @@ dependencies = [
 
 [[package]]
 name = "flowstate-mcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1000,7 +1000,7 @@ dependencies = [
 
 [[package]]
 name = "flowstate-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
