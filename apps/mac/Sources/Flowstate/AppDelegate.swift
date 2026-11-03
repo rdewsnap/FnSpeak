@@ -34,6 +34,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setUpStatusItem()
         applyPresentation()
         prefsObserver = prefs.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] in self?.applyPresentation() }
+        // Any real window (settings, notes, a meeting) puts the app in the Dock
+        // while it's open, so there's something to click on and ⌘Q to press.
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.willCloseNotification, NSWindow.didMiniaturizeNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(windowsChanged(_:)), name: name, object: nil)
+        }
         recorder.onLevel = { [weak self] in self?.handleLevel($0) }
         hotkeys.onStart = { [weak self] in self?.startRecording() ?? false }
         hotkeys.onFinish = { [weak self] in self?.finishRecording() }
@@ -238,13 +243,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - UI
 
     /// Menu bar icon and Dock presence follow the prefs; at least one stays on.
-    private func applyPresentation() {
+    /// The Dock icon also appears whenever a window is open, whatever the pref.
+    private func applyPresentation(closing: NSWindow? = nil) {
         statusItem.isVisible = prefs.showInMenuBar || !prefs.showInDock
-        let policy: NSApplication.ActivationPolicy = prefs.showInDock ? .regular : .accessory
+        let hasWindow = NSApp.windows.contains { $0 !== closing && $0.isVisible && !($0 is NSPanel) }
+        let policy: NSApplication.ActivationPolicy = prefs.showInDock || hasWindow ? .regular : .accessory
         if NSApp.activationPolicy() != policy { NSApp.setActivationPolicy(policy) }
         updateStatusIcon()
         // objectWillChange fires before the new value lands; look next turn.
         DispatchQueue.main.async { [weak self] in self?.overlay.refreshIdle() }
+    }
+
+    @objc private func windowsChanged(_ note: Notification) {
+        let closing = note.name == NSWindow.willCloseNotification ? note.object as? NSWindow : nil
+        applyPresentation(closing: closing)
     }
 
     private func updateStatusIcon() {
