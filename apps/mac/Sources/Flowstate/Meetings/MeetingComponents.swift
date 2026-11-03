@@ -219,6 +219,14 @@ struct MeetingBanner: View {
 }
 
 enum MeetingPermissions {
+    /// Asks for Screen Recording. The app only shows up in the System Settings
+    /// list once it has asked, so this comes first; if the system prompt was
+    /// already dismissed once, open the pane so the switch can be flipped.
+    static func requestScreenRecording() {
+        if CGPreflightScreenCaptureAccess() { return }
+        if !CGRequestScreenCaptureAccess() { openScreenRecordingSettings() }
+    }
+
     static func openScreenRecordingSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)

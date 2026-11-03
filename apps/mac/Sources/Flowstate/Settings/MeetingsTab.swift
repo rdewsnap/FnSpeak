@@ -30,7 +30,7 @@ struct MeetingsTab: View {
                             .font(.callout).fixedSize(horizontal: false, vertical: true)
                         Spacer()
                         if !screenAccess {
-                            Button("Open Screen Recording") { MeetingPermissions.openScreenRecordingSettings() }
+                            Button("Allow Screen Recording") { MeetingPermissions.requestScreenRecording() }
                         }
                     }
                     Text("Without it, meetings still record your microphone.")
