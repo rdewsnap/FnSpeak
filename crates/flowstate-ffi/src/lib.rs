@@ -880,6 +880,40 @@ fn build_cleaner(mode: CleanupMode, local: Option<&LocalModel>, cloud: Option<&C
     }
 }
 
+/// Implemented by the app to receive the core's debug log lines (cleanup
+/// timings, for one), so they land in the same log file as the app's own.
+#[uniffi::export(callback_interface)]
+pub trait LogSink: Send + Sync {
+    /// Called on whichever thread logged.
+    fn debug(&self, message: String);
+}
+
+struct SinkLogger(Arc<dyn LogSink>);
+
+impl log::Log for SinkLogger {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.level() <= log::Level::Debug && metadata.target().starts_with("flowstate_core")
+    }
+
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            self.0.debug(record.args().to_string());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+/// Send the core's debug logging to `sink`. Only the first call in a process
+/// takes effect.
+#[uniffi::export]
+pub fn set_log_sink(sink: Box<dyn LogSink>) {
+    let logger: &'static SinkLogger = Box::leak(Box::new(SinkLogger(Arc::from(sink))));
+    if log::set_logger(logger).is_ok() {
+        log::set_max_level(log::LevelFilter::Debug);
+    }
+}
+
 /*
  * Sync: writing what a Flowstate server sent back. These keep the given
  * timestamps (Unix seconds) and never call the cleanup model; the app keeps

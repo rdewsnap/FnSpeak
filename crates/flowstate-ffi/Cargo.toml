@@ -16,6 +16,7 @@ path = "src/bin/uniffi-bindgen.rs"
 [dependencies]
 flowstate-core.workspace = true
 thiserror.workspace = true
+log = "0.4"
 uniffi = { version = "0.32.2", features = ["cli"] }
 
 [features]

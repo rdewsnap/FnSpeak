@@ -20,6 +20,7 @@ final class EngineController: ObservableObject {
     var isReady: Bool { status == .ready }
 
     func load() {
+        setLogSink(sink: CoreLogSink())
         status = .loading
         let config: EngineConfig
         do {
