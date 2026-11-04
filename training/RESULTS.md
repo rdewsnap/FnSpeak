@@ -27,3 +27,18 @@
 - Setup: the TTS clips and vocabulary from the first table, cleanup always flowstate-cleanup-qwen3-1.7b Q4_K_M, three runs per row on an M4 Pro with the median shown (run 1 is the coldest). STT latency is the bench's per-clip average of the transcribe call, so it includes the first clip's Metal warm-up; the `--beam` flag sets Whisper's beam size.
 - Whisper latency is noisy: beam 5 ranged 675-800 ms, beam 1 607-692 ms, and beam 2 was not faster than beam 5 in two of three runs. Greedy saves roughly 60-100 ms per clip with no accuracy change on these 11 clips (beam 2's 3.4% WER is one word on this tiny set).
 - Parakeet is about four times faster on the speech step (about 175 ms) but gets one in four vocabulary terms wrong and four times the WER on repairs, because it has no prompt to bias with. Hotword boosting is still experimental and was not tried here. Clean synthetic voices flatter every row, so Whisper's lead on real speech and accents may be larger.
+
+## Whisper encoder window
+
+Whisper encodes a fixed 30 s window whatever the clip length, so most of the speech time above is the encoder, not the audio. `audio_ctx` trims that window. Same 11 clips, greedy, 1.7B cleanup:
+
+| audio_ctx | WER | Terms right | Repair WER | STT |
+|---|---|---|---|---|
+| 1500 (full 30 s) | 2.2% | 100.0% | 3.3% | 567 ms |
+| 1280 | 2.2% | 100.0% | 3.3% | 458 ms |
+| 1024 (now the default under 20 s) | 2.2% | 100.0% | 3.3% | 360 ms |
+| 768 | 5.6% | 87.5% | 3.3% | 275 ms |
+| 512 | 5.6% | 87.5% | 3.3% | 225 ms |
+
+Accuracy is flat down to 1024 and falls off a cliff below it (one vocabulary term lost on every setting under 1024). Clips over 20 s keep the full window. With a dictation transcribed at pauses while the key is held, the piece left on release is usually a few seconds, so this is what the user actually waits for.
+

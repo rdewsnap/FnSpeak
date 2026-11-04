@@ -8,6 +8,9 @@ const PROMPT_CHAR_BUDGET: usize = 600;
 /// How much of the text before a chunk goes into its prompt. Enough for a
 /// sentence or two of context; the rest of the budget stays for vocabulary.
 const PRECEDING_CHAR_BUDGET: usize = 200;
+/// Encoder positions for clips of up to 20 s; 1500 covers the full 30 s.
+const SHORT_AUDIO_CTX: i32 = 1024;
+const SHORT_AUDIO_SAMPLES: usize = 20 * 16_000;
 
 #[derive(Clone, Debug)]
 pub struct WhisperConfig {
@@ -112,6 +115,12 @@ impl SttEngine for WhisperEngine {
         let mut params = FullParams::new(strategy);
         params.set_language(Some("en"));
         params.set_n_threads(self.config.threads);
+        // Whisper's encoder always works on a 30 s window; shrinking it to
+        // the 20 s that SHORT_AUDIO_CTX covers saves about a third of the
+        // time with no change on our test clips. Below 1024 accuracy drops.
+        if audio.len() <= SHORT_AUDIO_SAMPLES {
+            params.set_audio_ctx(SHORT_AUDIO_CTX);
+        }
         params.set_no_context(true);
         params.set_suppress_blank(true);
         params.set_print_special(false);
