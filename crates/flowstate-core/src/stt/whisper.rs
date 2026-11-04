@@ -14,7 +14,8 @@ pub struct WhisperConfig {
     /// Path to a ggml model, e.g. `ggml-large-v3-turbo-q5_0.bin`.
     pub model_path: PathBuf,
     pub threads: i32,
-    /// Beam search is slower but noticeably better with an initial prompt.
+    /// Greedy decoding. On our clips beam search was no more accurate and
+    /// cost about 60 ms per dictation; set this above 1 to turn it back on.
     pub beam_size: i32,
     pub use_gpu: bool,
 }
@@ -24,7 +25,7 @@ impl WhisperConfig {
         WhisperConfig {
             model_path: model_path.into(),
             threads: std::thread::available_parallelism().map(|n| n.get().min(8) as i32).unwrap_or(4),
-            beam_size: 5,
+            beam_size: 1,
             use_gpu: true,
         }
     }
