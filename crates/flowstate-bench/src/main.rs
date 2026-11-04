@@ -35,6 +35,9 @@ struct Args {
     /// Whisper ggml model (needs the `whisper` feature).
     #[arg(long)]
     whisper: Option<PathBuf>,
+    /// Whisper beam size; 1 is greedy decoding. Defaults to the app's setting.
+    #[arg(long)]
+    beam: Option<i32>,
     /// Parakeet sherpa-onnx model folder (needs the `parakeet` feature).
     #[arg(long)]
     parakeet: Option<PathBuf>,
@@ -82,12 +85,13 @@ struct Score {
     fillers: usize,
     repair_errors: usize,
     repair_words: usize,
-    latency_ms: u64,
+    stt_ms: u64,
+    cleanup_ms: u64,
     fallbacks: usize,
 }
 
 impl Score {
-    fn add(&mut self, clip: &Clip, text: &str, latency_ms: u64, fell_back: bool) {
+    fn add(&mut self, clip: &Clip, text: &str, stt_ms: u64, cleanup_ms: u64, fell_back: bool) {
         let (errors, words) = metrics::word_errors(&clip.reference, text);
         self.clips += 1;
         self.word_errors += errors;
@@ -99,21 +103,24 @@ impl Score {
             self.repair_errors += errors;
             self.repair_words += words;
         }
-        self.latency_ms += latency_ms;
+        self.stt_ms += stt_ms;
+        self.cleanup_ms += cleanup_ms;
         self.fallbacks += usize::from(fell_back);
     }
 
     fn row(&self, name: &str, timed: bool) -> String {
         let pct = |n: usize, d: usize| if d == 0 { "—".to_string() } else { format!("{:.1}%", 100.0 * n as f64 / d as f64) };
-        let latency = if timed && self.clips > 0 { format!("{} ms", self.latency_ms / self.clips as u64) } else { "—".into() };
+        let avg = |ms: u64| if timed && self.clips > 0 { format!("{} ms", ms / self.clips as u64) } else { "—".into() };
         format!(
-            "| {name} | {} | {} | {} | {} | {} | {} | {} |",
+            "| {name} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
             self.clips,
             pct(self.word_errors, self.ref_words),
             pct(self.terms_right, self.terms_total),
             self.fillers,
             pct(self.repair_errors, self.repair_words),
-            latency,
+            avg(self.stt_ms),
+            avg(self.cleanup_ms),
+            avg(self.stt_ms + self.cleanup_ms),
             self.fallbacks,
         )
     }
@@ -135,7 +142,7 @@ fn main() -> Result<()> {
         let mut score = Score::default();
         for clip in clips.iter() {
             if let Some(text) = clip.external.get(name) {
-                score.add(clip, text, 0, false);
+                score.add(clip, text, 0, 0, false);
             }
         }
         rows.push(score.row(name, false));
@@ -178,7 +185,7 @@ fn main() -> Result<()> {
         // Raw output, with no cleanup at all.
         let mut score = Score::default();
         for (clip, (raw, ms)) in usable.iter().zip(&raws) {
-            score.add(clip, raw, *ms, false);
+            score.add(clip, raw, *ms, 0, false);
         }
         rows.push(score.row(&format!("{source_name} (raw)"), engine.is_some()));
 
@@ -199,7 +206,7 @@ fn main() -> Result<()> {
             let mut score = Score::default();
             for (clip, (raw, stt_ms)) in usable.iter().zip(&raws) {
                 let r = pipeline.clean(raw, &clip.context)?;
-                score.add(clip, &r.text, stt_ms + r.timings.cleanup_ms, r.fallback_reason.is_some());
+                score.add(clip, &r.text, *stt_ms, r.timings.cleanup_ms, r.fallback_reason.is_some());
                 details.push(serde_json::json!({
                     "system": label, "id": clip.id, "raw": raw, "output": r.text,
                     "reference": clip.reference, "fallback": r.fallback_reason,
@@ -209,8 +216,8 @@ fn main() -> Result<()> {
         }
     }
 
-    println!("| System | Clips | WER | Terms right | Fillers left | Repair WER | Avg latency | Fallbacks |");
-    println!("|---|---|---|---|---|---|---|---|");
+    println!("| System | Clips | WER | Terms right | Fillers left | Repair WER | STT | Cleanup | Total | Fallbacks |");
+    println!("|---|---|---|---|---|---|---|---|---|---|");
     for row in rows {
         println!("{row}");
     }
@@ -282,7 +289,13 @@ fn speech_engines(args: &Args) -> Result<Vec<Box<dyn SttEngine>>> {
     let mut engines: Vec<Box<dyn SttEngine>> = Vec::new();
     if let Some(_path) = &args.whisper {
         #[cfg(feature = "whisper")]
-        engines.push(Box::new(flowstate_core::stt::WhisperEngine::load(flowstate_core::stt::WhisperConfig::new(_path))?));
+        engines.push(Box::new(flowstate_core::stt::WhisperEngine::load({
+            let mut config = flowstate_core::stt::WhisperConfig::new(_path);
+            if let Some(beam) = args.beam {
+                config.beam_size = beam;
+            }
+            config
+        })?));
         #[cfg(not(feature = "whisper"))]
         bail!("--whisper needs a build with `--features whisper`");
     }
