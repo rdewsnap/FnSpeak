@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Download the default models into ~/Library/Application Support/Flowstate/Models.
+# Download the default models into ~/Library/Application Support/FnSpeak/Models.
 #
 #   scripts/fetch-models.sh            # Whisper + Parakeet + cleanup model
 #   scripts/fetch-models.sh whisper    # just one of: whisper, parakeet, cleanup
@@ -9,7 +9,7 @@
 #   scripts/build-llama-server.sh
 set -euo pipefail
 
-DEST="$HOME/Library/Application Support/Flowstate/Models"
+DEST="$HOME/Library/Application Support/FnSpeak/Models"
 mkdir -p "$DEST"
 WHAT="${1:-all}"
 

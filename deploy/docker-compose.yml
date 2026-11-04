@@ -1,4 +1,4 @@
-# Flowstate server with Postgres. From the repository root:
+# FnSpeak server with Postgres. From the repository root:
 #   cp deploy/.env.example deploy/.env   # then fill it in
 #   docker compose -f deploy/docker-compose.yml up -d
 
@@ -7,13 +7,13 @@ services:
     image: postgres:17
     restart: unless-stopped
     environment:
-      POSTGRES_USER: flowstate
-      POSTGRES_DB: flowstate
+      POSTGRES_USER: fnspeak
+      POSTGRES_DB: fnspeak
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U flowstate -d flowstate"]
+      test: ["CMD-SHELL", "pg_isready -U fnspeak -d fnspeak"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -28,7 +28,7 @@ services:
         condition: service_healthy
     env_file: .env
     environment:
-      FLOWSTATE_DATABASE_URL: postgres://flowstate:${POSTGRES_PASSWORD}@postgres:5432/flowstate
+      FNSPEAK_DATABASE_URL: postgres://fnspeak:${POSTGRES_PASSWORD}@postgres:5432/fnspeak
     ports:
       - "8080:8080"
 

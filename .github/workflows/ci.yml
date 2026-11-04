@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # The Swift target only links libflowstate_ffi. The sherpa/onnxruntime
+      # The Swift target only links libfnspeak_ffi. The sherpa/onnxruntime
       # dylibs are runtime-only, so the app type-checks and links without the
       # `mac` feature (the generated UniFFI surface is identical).
       - name: Build Rust core, bindings and Swift app

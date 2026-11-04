@@ -1,7 +1,7 @@
 [project]
-name = "flowstate-training"
+name = "fnspeak-training"
 version = "0.1.0"
-description = "Data generation and fine-tuning for Flowstate's small cleanup model"
+description = "Data generation and fine-tuning for FnSpeak's small cleanup model"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=1.0",

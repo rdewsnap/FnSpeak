@@ -1,5 +1,5 @@
 // Transcript-only examples: they test cleanup without audio. Record your own clips for real numbers.
-{"id": "vocab-01", "category": "vocab", "transcript": "Push the flow state build to staging tonight.", "reference": "Push the Flowstate build to staging tonight.", "terms": ["Flowstate"]}
+{"id": "vocab-01", "category": "vocab", "transcript": "Push the flow state build to staging tonight.", "reference": "Push the FnSpeak build to staging tonight.", "terms": ["FnSpeak"]}
 {"id": "vocab-02", "category": "vocab", "transcript": "Can you ask pria ramen to review the PG vector migration", "reference": "Can you ask Priya Raman to review the pgvector migration?", "terms": ["Priya Raman", "pgvector"]}
 {"id": "vocab-03", "category": "vocab", "transcript": "The dod safe transfer upload is timing out again.", "reference": "The DoDSafeTransfer upload is timing out again.", "terms": ["DoDSafeTransfer"], "context": {"app_id": "com.tinyspeck.slackmacgap", "app_name": "Slack"}}
 {"id": "vocab-04", "category": "vocab", "transcript": "I moved the viressent landing page off of towery.", "reference": "I moved the Virescent landing page off of Tauri.", "terms": ["Virescent", "Tauri"]}

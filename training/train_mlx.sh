@@ -26,7 +26,7 @@ LR="${LR:-1e-4}"
 EVAL_EVERY="${EVAL_EVERY:-100}"
 OUT="${OUT:-out}"
 DATA="${DATA:-data}"
-NAME="flowstate-cleanup-$(basename "$BASE" | tr '[:upper:]' '[:lower:]')"
+NAME="fnspeak-cleanup-$(basename "$BASE" | tr '[:upper:]' '[:lower:]')"
 
 [[ -f "$DATA/train.jsonl" ]] || { echo "run build_dataset.py first"; exit 1; }
 mkdir -p "$OUT"
@@ -62,7 +62,7 @@ if [[ -n "${LLAMA_CPP:-}" ]]; then
         python "$LLAMA_CPP/convert_hf_to_gguf.py" "$OUT/$NAME" --outfile "$OUT/$NAME-f16.gguf" --outtype f16
     "$LLAMA_CPP/build/bin/llama-quantize" "$OUT/$NAME-f16.gguf" "$OUT/$NAME-Q4_K_M.gguf" Q4_K_M
     echo "GGUF ready: $OUT/$NAME-Q4_K_M.gguf"
-    echo "Copy it to ~/Library/Application Support/Flowstate/Models/ — the app prefers files named flowstate*."
+    echo "Copy it to ~/Library/Application Support/FnSpeak/Models/ — the app prefers files named fnspeak*."
 else
     echo "Fused model in $OUT/$NAME. Set LLAMA_CPP to also export a GGUF."
 fi

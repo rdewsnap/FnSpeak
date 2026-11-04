@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Flowstate</string>
+    <string>FnSpeak</string>
     <key>CFBundleDisplayName</key>
-    <string>Flowstate</string>
+    <string>FnSpeak</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.flowstate.Flowstate</string>
+    <string>com.fnspeak.FnSpeak</string>
     <key>CFBundleExecutable</key>
-    <string>Flowstate</string>
+    <string>FnSpeak</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -21,29 +21,29 @@
     <key>LSUIElement</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Flowstate listens while you hold the Fn key and turns your speech into text, and transcribes meetings you choose to record. Audio is processed on your Mac and never stored.</string>
+    <string>FnSpeak listens while you hold the Fn key and turns your speech into text, and transcribes meetings you choose to record. Audio is processed on your Mac and never stored.</string>
     <key>NSContactsUsageDescription</key>
-    <string>Flowstate learns the names of your contacts so it spells them correctly when you dictate. Names stay on your Mac.</string>
+    <string>FnSpeak learns the names of your contacts so it spells them correctly when you dictate. Names stay on your Mac.</string>
     <key>NSCalendarsFullAccessUsageDescription</key>
-    <string>Flowstate learns meeting titles and attendee names from your calendar so it spells them correctly. If you turn it on in Settings, it also adds a short summary and a link to a recorded meeting's event. Nothing leaves your Mac.</string>
+    <string>FnSpeak learns meeting titles and attendee names from your calendar so it spells them correctly. If you turn it on in Settings, it also adds a short summary and a link to a recorded meeting's event. Nothing leaves your Mac.</string>
     <key>NSCalendarsUsageDescription</key>
-    <string>Flowstate learns meeting titles and attendee names from your calendar so it spells them correctly. They stay on your Mac.</string>
+    <string>FnSpeak learns meeting titles and attendee names from your calendar so it spells them correctly. They stay on your Mac.</string>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>Flowstate records the audio of calls you choose to transcribe, so the other side appears in the meeting notes. It captures sound only, never your screen, and stores no audio.</string>
+    <string>FnSpeak records the audio of calls you choose to transcribe, so the other side appears in the meeting notes. It captures sound only, never your screen, and stores no audio.</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Flowstate creates a note in Apple Notes when you choose Send to Apple Notes.</string>
+    <string>FnSpeak creates a note in Apple Notes when you choose Send to Apple Notes.</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
             <key>CFBundleURLName</key>
-            <string>dev.flowstate.Flowstate</string>
+            <string>com.fnspeak.FnSpeak</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>flowstate</string>
+                <string>fnspeak</string>
             </array>
         </dict>
     </array>
     <key>NSAudioCaptureUsageDescription</key>
-    <string>Flowstate records the audio of calls you choose to transcribe, so the other side appears in the meeting notes. No audio is stored.</string>
+    <string>FnSpeak records the audio of calls you choose to transcribe, so the other side appears in the meeting notes. No audio is stored.</string>
 </dict>
 </plist>

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Sign with a Developer ID and notarize a Flowstate.app or a .dmg.
+# Sign with a Developer ID and notarize a FnSpeak.app or a .dmg.
 #
-#   scripts/notarize.sh build/Flowstate.app    # re-sign (hardened runtime), notarize, staple
-#   scripts/notarize.sh build/Flowstate-0.1.0.dmg   # sign the disk image, notarize, staple
+#   scripts/notarize.sh build/FnSpeak.app    # re-sign (hardened runtime), notarize, staple
+#   scripts/notarize.sh build/FnSpeak-0.1.0.dmg   # sign the disk image, notarize, staple
 #
 # Environment (the same names the release workflow takes from repo secrets):
 #   APPLE_ID                      Apple ID used for notarytool
@@ -17,11 +17,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ENTITLEMENTS="$ROOT/apps/mac/Support/Flowstate.entitlements"
+ENTITLEMENTS="$ROOT/apps/mac/Support/FnSpeak.entitlements"
 TARGET="${1:-}"
 
 if [[ -z "$TARGET" || ! -e "$TARGET" ]]; then
-    echo "usage: $0 <Flowstate.app | file.dmg>" >&2
+    echo "usage: $0 <FnSpeak.app | file.dmg>" >&2
     exit 2
 fi
 
@@ -98,7 +98,7 @@ case "$TARGET" in
         if [[ -f "$APP/Contents/Resources/llama-server" ]]; then
             sign "$APP/Contents/Resources/llama-server"
         fi
-        sign "$APP/Contents/MacOS/flowstate-mcp"
+        sign "$APP/Contents/MacOS/fnspeak-mcp"
         sign --entitlements "$ENTITLEMENTS" "$APP"
         codesign --verify --deep --strict --verbose=2 "$APP"
 

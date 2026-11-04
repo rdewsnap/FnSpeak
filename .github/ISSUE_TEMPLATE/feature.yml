@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest something Flowstate should do
+description: Suggest something FnSpeak should do
 labels: [enhancement]
 body:
   - type: textarea

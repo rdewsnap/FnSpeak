@@ -1,6 +1,6 @@
 // Spoken by macOS `say` to make audio clips without a microphone: scripts/make-tts-clips.sh.
 // Synthetic voices are cleaner than real speech, so treat these as a smoke test, not the real benchmark.
-{"id": "tts-vocab-01", "category": "vocab", "say": "Push the flow state build to staging tonight.", "reference": "Push the Flowstate build to staging tonight.", "terms": ["Flowstate"]}
+{"id": "tts-vocab-01", "category": "vocab", "say": "Push the flow state build to staging tonight.", "reference": "Push the FnSpeak build to staging tonight.", "terms": ["FnSpeak"]}
 {"id": "tts-vocab-02", "category": "vocab", "say": "Can you ask Priya Raman to review the P G vector migration?", "reference": "Can you ask Priya Raman to review the pgvector migration?", "terms": ["Priya Raman", "pgvector"]}
 {"id": "tts-vocab-03", "category": "vocab", "say": "The D O D safe transfer upload is timing out again.", "reference": "The DoDSafeTransfer upload is timing out again.", "terms": ["DoDSafeTransfer"]}
 {"id": "tts-vocab-04", "category": "vocab", "say": "I moved the Virescent landing page off of Tauri.", "reference": "I moved the Virescent landing page off of Tauri.", "terms": ["Virescent", "Tauri"]}

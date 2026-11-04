@@ -2,7 +2,7 @@
 
 shantanugoel/aawaaz-transcript-cleanup-dataset has ~23k synthetic
 messy/clean pairs in twelve categories. Some categories restructure the
-text into notes with headings, which Flowstate doesn't do, so pairs whose
+text into notes with headings, which FnSpeak doesn't do, so pairs whose
 output uses Markdown or words the speaker never said are dropped.
 
     uv run python -I prepare_aawaaz.py --out data/aawaaz/pairs.jsonl

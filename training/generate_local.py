@@ -14,7 +14,7 @@ printed at the end.
 
     uv run generate_local.py --count 3000 --out data/local/pairs.jsonl \\
         --server ../build/llama-server \\
-        --model "$HOME/Library/Application Support/Flowstate/Models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+        --model "$HOME/Library/Application Support/FnSpeak/Models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
 """
 
 import argparse

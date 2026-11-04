@@ -1,0 +1,27 @@
+[package]
+name = "fnspeak-ffi"
+description = "UniFFI bindings for the FnSpeak core (Swift today, C# later)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+name = "fnspeak_ffi"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+[dependencies]
+fnspeak-core.workspace = true
+thiserror.workspace = true
+log = "0.4"
+uniffi = { version = "0.32.2", features = ["cli"] }
+
+[features]
+default = []
+whisper = ["fnspeak-core/whisper"]
+parakeet = ["fnspeak-core/parakeet"]
+# Everything the Mac app ships with.
+mac = ["whisper", "parakeet", "fnspeak-core/whisper-metal"]
