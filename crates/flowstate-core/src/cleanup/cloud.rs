@@ -175,6 +175,14 @@ impl OpenAiCompatCleaner {
         self
     }
 
+    /// A one-token completion with the cleanup system prompt, to keep the
+    /// server's GPU clocks up and its prompt cache populated. Errors are
+    /// ignored: a 1-token reply always reports `length`, and a dead server
+    /// will show up on the next real dictation anyway.
+    pub fn warm(&self, timeout: Duration) {
+        let _ = self.chat(SYSTEM_PROMPT, "hi", 1, timeout);
+    }
+
     fn chat(&self, system: &str, user: &str, max_tokens: u32, timeout: Duration) -> Result<String, CleanupError> {
         let mut body = json!({
             "model": self.model,

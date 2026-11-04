@@ -10,8 +10,18 @@ use super::{Cleaner, CleanupError, CleanupRequest, Llm, OpenAiCompatCleaner};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::thread::sleep;
+use std::sync::mpsc::{self, RecvTimeoutError, Sender};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, sleep, JoinHandle};
 use std::time::{Duration, Instant};
+
+/// After this long without a request, send a tiny one so Metal doesn't drop
+/// to a low-power state and the next dictation doesn't pay for it. The first
+/// dictation after a few idle minutes was running 500-800 ms against ~300 ms
+/// when warm.
+const KEEP_WARM_AFTER: Duration = Duration::from_secs(120);
+/// The ping is one token of output; give up quickly if the server is busy.
+const KEEP_WARM_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Debug)]
 pub struct LocalConfig {
@@ -106,7 +116,10 @@ fn free_port() -> Result<u16, CleanupError> {
 pub struct LocalCleaner {
     inner: OpenAiCompatCleaner,
     model_name: String,
-    // Declared last so the client is dropped before the server stops.
+    last_used: Arc<Mutex<Instant>>,
+    _keep_warm: KeepWarm,
+    // Declared last so the client and the keep-warm thread are dropped before
+    // the server stops.
     _server: LlamaServer,
 }
 
@@ -118,7 +131,47 @@ impl LocalCleaner {
             .with_prompt_cache()
             .with_timeout(config.timeout)?
             .with_context_tokens(config.context_tokens as usize);
-        Ok(LocalCleaner { inner, model_name, _server: server })
+        let last_used = Arc::new(Mutex::new(Instant::now()));
+        let keep_warm = KeepWarm::spawn(inner.clone(), last_used.clone());
+        Ok(LocalCleaner { inner, model_name, last_used, _keep_warm: keep_warm, _server: server })
+    }
+}
+
+/// Background thread that pings the server while the cleaner sits idle.
+/// Dropping it stops and joins the thread.
+struct KeepWarm {
+    // Dropping the sender wakes the thread with `Disconnected`.
+    stop: Option<Sender<()>>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl KeepWarm {
+    fn spawn(client: OpenAiCompatCleaner, last_used: Arc<Mutex<Instant>>) -> Self {
+        let (stop, rx) = mpsc::channel::<()>();
+        let thread = thread::spawn(move || loop {
+            let idle = last_used.lock().unwrap_or_else(|e| e.into_inner()).elapsed();
+            let wait = KEEP_WARM_AFTER.saturating_sub(idle);
+            match rx.recv_timeout(wait.max(Duration::from_secs(1))) {
+                Err(RecvTimeoutError::Timeout) => {}
+                // Stopped, or nobody left to stop us.
+                _ => return,
+            }
+            let idle = last_used.lock().unwrap_or_else(|e| e.into_inner()).elapsed();
+            if idle >= KEEP_WARM_AFTER {
+                client.warm(KEEP_WARM_TIMEOUT);
+                *last_used.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+            }
+        });
+        KeepWarm { stop: Some(stop), thread: Some(thread) }
+    }
+}
+
+impl Drop for KeepWarm {
+    fn drop(&mut self) {
+        self.stop.take();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 
@@ -128,7 +181,10 @@ impl Cleaner for LocalCleaner {
     }
 
     fn clean(&mut self, req: &CleanupRequest<'_>) -> Result<String, CleanupError> {
-        self.inner.clean(req)
+        *self.last_used.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+        let result = self.inner.clean(req);
+        *self.last_used.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+        result
     }
 
     /// Talks to this cleaner's own server, so summaries reuse the loaded
@@ -140,4 +196,17 @@ impl Cleaner for LocalCleaner {
 
 fn file_name(path: &Path) -> String {
     path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keep_warm_stops_promptly_on_drop() {
+        let client = OpenAiCompatCleaner::new("http://127.0.0.1:9/v1", None, "test").unwrap();
+        let started = Instant::now();
+        drop(KeepWarm::spawn(client, Arc::new(Mutex::new(Instant::now()))));
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
 }
