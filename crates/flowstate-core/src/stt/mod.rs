@@ -34,6 +34,14 @@ pub struct SttHints {
 pub trait SttEngine: Send {
     fn name(&self) -> &'static str;
     fn transcribe(&mut self, audio: &[f32], hints: &SttHints) -> Result<String, SttError>;
+
+    /// Transcribe a clip that continues `preceding`, the text already
+    /// transcribed from the audio just before it. Engines with a prompt use it
+    /// to keep chunks of one dictation coherent; the rest ignore it.
+    fn transcribe_continuing(&mut self, audio: &[f32], hints: &SttHints, preceding: &str) -> Result<String, SttError> {
+        let _ = preceding;
+        self.transcribe(audio, hints)
+    }
 }
 
 /// Below this RMS level a clip is treated as silence. Whisper in particular
