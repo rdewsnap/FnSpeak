@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="256" height="256">
+  <!-- a real key: legend small, bottom-left, like the fn key on the keyboard -->
+  <rect x="5" y="10" width="54" height="50" rx="12" fill="#0e0d0c"/>
+  <rect x="5" y="4" width="54" height="50" rx="12" fill="#1f1d1a"/>
+  <g fill="none" stroke="#f3f3f1" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M18 46 V31 q0 -5 5 -5"/>
+    <path d="M14 37 H22"/>
+    <path d="M28 46 V35"/>
+    <path d="M28 39 q0 -4 4 -4 q4 0 4 4 V46"/>
+  </g>
+</svg>
