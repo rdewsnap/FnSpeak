@@ -14,6 +14,11 @@
 # Locally, if the certificate is already in your keychain you can skip the two
 # DEVELOPER_ID_CERT_* variables and set SIGN_IDENTITY instead, e.g.
 #   SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+# and keep the notary login in the Keychain instead of the three APPLE_*
+# variables: run this once (it prompts for the app-specific password)
+#   xcrun notarytool store-credentials fnspeak --apple-id you@example.com --team-id TEAMID
+# then
+#   NOTARY_PROFILE=fnspeak scripts/notarize.sh build/FnSpeak.app
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -26,9 +31,11 @@ if [[ -z "$TARGET" || ! -e "$TARGET" ]]; then
 fi
 
 missing=()
-for var in APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD; do
-    [[ -n "${!var:-}" ]] || missing+=("$var")
-done
+if [[ -z "${NOTARY_PROFILE:-}" ]]; then
+    for var in APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD; do
+        [[ -n "${!var:-}" ]] || missing+=("$var")
+    done
+fi
 if [[ -z "${SIGN_IDENTITY:-}" ]]; then
     for var in DEVELOPER_ID_CERT_P12_BASE64 DEVELOPER_ID_CERT_PASSWORD; do
         [[ -n "${!var:-}" ]] || missing+=("$var")
@@ -81,9 +88,13 @@ sign() { codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" 
 submit_and_staple() {
     local file="$1"
     echo "==> Submitting $(basename "$file") to Apple notary service"
-    xcrun notarytool submit "$file" \
-        --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" \
-        --wait --timeout 30m
+    if [[ -n "${NOTARY_PROFILE:-}" ]]; then
+        xcrun notarytool submit "$file" --keychain-profile "$NOTARY_PROFILE" --wait --timeout 30m
+    else
+        xcrun notarytool submit "$file" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" \
+            --wait --timeout 30m
+    fi
     echo "==> Stapling"
     xcrun stapler staple "${2:-$file}"
 }
