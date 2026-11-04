@@ -1,0 +1,23 @@
+[package]
+name = "fnspeak-bench"
+description = "Scores dictation systems on your own vocabulary, filler removal and self-correction repair"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "fnspeak-bench"
+path = "src/main.rs"
+
+[dependencies]
+fnspeak-core.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clap = { version = "~4.5", features = ["derive"] }
+hound = "3.5.1"
+
+[features]
+default = []
+whisper = ["fnspeak-core/whisper-metal"]
+parakeet = ["fnspeak-core/parakeet"]

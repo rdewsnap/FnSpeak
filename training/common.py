@@ -1,5 +1,5 @@
 """Shared formatting: training examples must look exactly like what the app
-sends the cleanup model, so this mirrors crates/flowstate-core/src/cleanup/prompt.rs.
+sends the cleanup model, so this mirrors crates/fnspeak-core/src/cleanup/prompt.rs.
 
 Also holds the faithfulness check every data source runs its pairs through:
 a clean output may drop, reorder and repunctuate the speaker's words, but

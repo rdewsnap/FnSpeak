@@ -1,26 +1,26 @@
 # Example Fly.io config: one machine with SQLite on a volume. From the
 # repository root:
 #   fly launch --no-deploy --copy-config --config deploy/fly.toml
-#   fly volumes create flowstate_data --size 1 --config deploy/fly.toml
-#   fly secrets set FLOWSTATE_SECRET=$(openssl rand -hex 32) --config deploy/fly.toml
+#   fly volumes create fnspeak_data --size 1 --config deploy/fly.toml
+#   fly secrets set FNSPEAK_SECRET=$(openssl rand -hex 32) --config deploy/fly.toml
 #   fly deploy --config deploy/fly.toml --dockerfile deploy/Dockerfile .
 # For more than one machine, use Postgres instead: set the
-# FLOWSTATE_DATABASE_URL secret and drop the [mounts] section.
+# FNSPEAK_DATABASE_URL secret and drop the [mounts] section.
 
-app = "flowstate-server"
+app = "fnspeak-server"
 primary_region = "iad"
 
 [build]
   dockerfile = "deploy/Dockerfile"
 
 [env]
-  FLOWSTATE_BASE_URL = "https://flowstate-server.fly.dev"
-  FLOWSTATE_DATABASE_URL = "sqlite:///data/flowstate.db"
+  FNSPEAK_BASE_URL = "https://fnspeak-server.fly.dev"
+  FNSPEAK_DATABASE_URL = "sqlite:///data/fnspeak.db"
   # Fly's proxy sets X-Forwarded-For, so rate limits see the real client.
-  FLOWSTATE_TRUST_PROXY = "1"
+  FNSPEAK_TRUST_PROXY = "1"
 
 [mounts]
-  source = "flowstate_data"
+  source = "fnspeak_data"
   destination = "/data"
 
 [http_service]

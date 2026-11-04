@@ -54,7 +54,7 @@ cargo update --workspace --offline >/dev/null 2>&1 || cargo update --workspace >
 
 git add Cargo.toml Cargo.lock "$PLIST"
 git commit -q -m "Release $TAG"
-git tag -a "$TAG" -m "Flowstate $VERSION"
+git tag -a "$TAG" -m "FnSpeak $VERSION"
 
 echo "Tagged $TAG on $(git rev-parse --short HEAD)."
 echo "Publish it with:"

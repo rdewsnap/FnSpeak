@@ -1,5 +1,5 @@
 # One term per line. Real runs should use your own: --projects ~/Projects
-Flowstate
+FnSpeak
 Priya Raman
 Siobhan
 Kubernetes

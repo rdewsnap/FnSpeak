@@ -78,35 +78,35 @@ jobs:
           mkdir -p build
           scripts/build-llama-server.sh
 
-      - name: Build Flowstate.app
+      - name: Build FnSpeak.app
         env:
           LLAMA_SERVER: ${{ github.workspace }}/build/llama-server
         run: scripts/build-mac.sh
 
       - name: Sign and notarize the app
         if: steps.meta.outputs.notarize == 'true'
-        run: scripts/notarize.sh build/Flowstate.app
+        run: scripts/notarize.sh build/FnSpeak.app
 
       - name: Package dmg and zip
         env:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
           mkdir -p dist
-          scripts/make-dmg.sh build/Flowstate.app "dist/Flowstate-$VERSION.dmg"
-          ditto -c -k --keepParent build/Flowstate.app "dist/Flowstate-$VERSION.zip"
+          scripts/make-dmg.sh build/FnSpeak.app "dist/FnSpeak-$VERSION.dmg"
+          ditto -c -k --keepParent build/FnSpeak.app "dist/FnSpeak-$VERSION.zip"
 
       - name: Sign and notarize the dmg
         if: steps.meta.outputs.notarize == 'true'
         env:
           VERSION: ${{ steps.meta.outputs.version }}
-        run: scripts/notarize.sh "dist/Flowstate-$VERSION.dmg"
+        run: scripts/notarize.sh "dist/FnSpeak-$VERSION.dmg"
 
       - name: Checksums
         env:
           VERSION: ${{ steps.meta.outputs.version }}
         working-directory: dist
         run: |
-          shasum -a 256 "Flowstate-$VERSION.dmg" "Flowstate-$VERSION.zip" | tee SHA256SUMS
+          shasum -a 256 "FnSpeak-$VERSION.dmg" "FnSpeak-$VERSION.zip" | tee SHA256SUMS
 
       - name: Collect release notes
         env:
@@ -137,8 +137,8 @@ jobs:
           flags=()
           if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
           gh release create "$TAG" \
-            "dist/Flowstate-$VERSION.dmg" "dist/Flowstate-$VERSION.zip" dist/SHA256SUMS \
-            --title "Flowstate $VERSION" \
+            "dist/FnSpeak-$VERSION.dmg" "dist/FnSpeak-$VERSION.zip" dist/SHA256SUMS \
+            --title "FnSpeak $VERSION" \
             --generate-notes \
             --notes-file notes.md \
             --verify-tag \
@@ -150,11 +150,11 @@ jobs:
           NOTARIZED: ${{ steps.meta.outputs.notarize }}
         run: |
           {
-            echo "## Flowstate $VERSION"
+            echo "## FnSpeak $VERSION"
             echo
             echo "Notarized: \`$NOTARIZED\`"
             echo
-            echo "SHA-256, for the Homebrew cask (\`homebrew/flowstate.rb\`):"
+            echo "SHA-256, for the Homebrew cask (\`homebrew/fnspeak.rb\`):"
             echo
             echo '```'
             cat dist/SHA256SUMS

@@ -1,4 +1,4 @@
-# Flowstate
+# FnSpeak
 
 Dictation for macOS that runs on your Mac and learns how you talk.
 
@@ -19,7 +19,7 @@ A few things grew out of using it every day:
 - **Notes.** ⌥Space opens a little bar for a quick note, typed or dictated. Everything's searchable. Notes can mirror to a folder as Markdown if you live in Obsidian.
 - **Meetings.** It records your mic and the call's audio, transcribes as you go, and when you stop you get a summary with decisions and action items. The audio isn't kept.
 - **Your AI tools can read your notes.** There's a small MCP server in the app bundle, so Claude, Cursor or whatever you use can search your notes and meetings. Read-only, local, no network.
-- **Integrations.** Apple Notes, a signed webhook, meeting summaries written back to the calendar event, Shortcuts actions and `flowstate://` links.
+- **Integrations.** Apple Notes, a signed webhook, meeting summaries written back to the calendar event, Shortcuts actions and `fnspeak://` links.
 - **Your clipboard is left alone.** Pasting the dictation saves and restores whatever you had copied, and tells clipboard managers to ignore it.
 
 If the cleanup model is slow, missing or makes something up, you get the rule-cleaned text instead. You never lose a dictation.
@@ -32,7 +32,7 @@ There's no signed release yet, so you build it. Apple Silicon, Rust (rustup), Xc
 scripts/fetch-models.sh         # Whisper, Parakeet and a 4B cleanup model, about 3.7 GB
 scripts/build-llama-server.sh   # llama-server for local cleanup
 LLAMA_SERVER=build/llama-server scripts/build-mac.sh
-open build/Flowstate.app
+open build/FnSpeak.app
 ```
 
 Homebrew's llama.cpp currently fails to compile its Metal shaders on macOS 15, which is why the second script builds a pinned version. First launch asks for microphone and Accessibility access and picks a cleanup mode based on your hardware.
@@ -50,14 +50,14 @@ If Fn opens the emoji picker, set System Settings → Keyboard → "Press 🌐 k
 
 Audio goes to Whisper (whisper.cpp) or Parakeet (sherpa-onnx, faster), with your vocabulary passed in as a prompt. A rule-based filter strips um/uh, `I-I`, `the the`. Misheard names get matched by sound against your vocabulary (`PG vector` → `pgvector`). Then a small language model handles the judgment calls: `like`, `you know`, restarts, and corrections that reach back a few sentences. Last, a guardrail rejects any rewrite that adds words you didn't say.
 
-The cleanup model runs through llama.cpp as a sidecar on localhost. If your Mac can't run it comfortably you can point it at your own API key (Anthropic, Groq, anything OpenAI-compatible), or turn it off and just get the rule-based cleanup, which is instant. In cloud mode only text is sent, never audio, and dictations with no self-corrections go to a cheaper model. Locally you can do the same: drop a second, smaller GGUF into the models folder and pick it under Settings → Advanced → Fast model. Flowstate also keeps the local model warm while idle so the first dictation after a break isn't slower.
+The cleanup model runs through llama.cpp as a sidecar on localhost. If your Mac can't run it comfortably you can point it at your own API key (Anthropic, Groq, anything OpenAI-compatible), or turn it off and just get the rule-based cleanup, which is instant. In cloud mode only text is sent, never audio, and dictations with no self-corrections go to a cheaper model. Locally you can do the same: drop a second, smaller GGUF into the models folder and pick it under Settings → Advanced → Fast model. FnSpeak also keeps the local model warm while idle so the first dictation after a break isn't slower.
 
 ## Is it any good?
 
-`flowstate-bench` scores the pipeline on word error rate, whether your vocabulary came out spelled right, fillers left behind, and whether self-corrections were applied. You can paste other tools' output into the manifest and score them on the same clips.
+`fnspeak-bench` scores the pipeline on word error rate, whether your vocabulary came out spelled right, fillers left behind, and whether self-corrections were applied. You can paste other tools' output into the manifest and score them on the same clips.
 
 ```bash
-cargo run -p flowstate-bench -- --manifest bench/manifest.example.jsonl --vocab bench/vocab.example.txt
+cargo run -p fnspeak-bench -- --manifest bench/manifest.example.jsonl --vocab bench/vocab.example.txt
 ```
 
 Record clips as 16 kHz mono WAV, e.g. `ffmpeg -f avfoundation -i ":0" -ar 16000 -ac 1 bench/clips/vocab-01.wav`, and run with `--features whisper,parakeet` for the full pipeline. `--beam N` sets Whisper's beam size (1 is greedy), and the table reports STT and cleanup latency separately.
@@ -67,23 +67,23 @@ I've also started fine-tuning smaller models so slower Macs can do cleanup local
 ## Connecting an AI assistant
 
 ```json
-{"mcpServers":{"flowstate":{"command":"/Applications/Flowstate.app/Contents/MacOS/flowstate-mcp"}}}
+{"mcpServers":{"fnspeak":{"command":"/Applications/FnSpeak.app/Contents/MacOS/fnspeak-mcp"}}}
 ```
 
-Or for Claude Code: `claude mcp add flowstate -- /Applications/Flowstate.app/Contents/MacOS/flowstate-mcp`. Add `--allow-write` if you want the assistant to be able to save notes.
+Or for Claude Code: `claude mcp add fnspeak -- /Applications/FnSpeak.app/Contents/MacOS/fnspeak-mcp`. Add `--allow-write` if you want the assistant to be able to save notes.
 
 ## Sync and teams
 
-Everything above works with no account. If you want your notes on two Macs, a shared glossary with your team, or cleanup without running a model or managing a key, the app can sign in to a server. The server is in this repo (`crates/flowstate-server`), one binary, SQLite or Postgres, docker compose in `deploy/`. Run your own or use mine once it's up. Either way audio never leaves your Mac; the server only sees text you choose to sync.
+Everything above works with no account. If you want your notes on two Macs, a shared glossary with your team, or cleanup without running a model or managing a key, the app can sign in to a server. The server is in this repo (`crates/fnspeak-server`), one binary, SQLite or Postgres, docker compose in `deploy/`. Run your own or use mine once it's up. Either way audio never leaves your Mac; the server only sees text you choose to sync.
 
 ## Layout
 
 ```
-crates/flowstate-core     the pipeline: STT, filter, vocabulary, cleanup, commands, notes, meetings
-crates/flowstate-ffi      UniFFI bindings for the Mac app
-crates/flowstate-mcp      the local MCP server
-crates/flowstate-bench    benchmark CLI
-crates/flowstate-server   optional backend: accounts, teams, sync, hosted cleanup
+crates/fnspeak-core     the pipeline: STT, filter, vocabulary, cleanup, commands, notes, meetings
+crates/fnspeak-ffi      UniFFI bindings for the Mac app
+crates/fnspeak-mcp      the local MCP server
+crates/fnspeak-bench    benchmark CLI
+crates/fnspeak-server   optional backend: accounts, teams, sync, hosted cleanup
 apps/mac                  the menu bar app (Swift)
 prompts/                  model prompts
 training/                 data prep and fine-tuning
@@ -94,8 +94,8 @@ Contributions welcome; see CONTRIBUTING.md for how branches work here.
 
 ## License
 
-Flowstate is free software under the [GNU Affero General Public License](LICENSE), version 3 or later. © 2026 Ryan Dewsnap.
+FnSpeak is free software under the [GNU Affero General Public License](LICENSE), version 3 or later. © 2026 Ryan Dewsnap.
 
 Use it for anything, at home or at work, at no cost. If you distribute a modified version, or run one as a service for other people, you have to publish your source under the same license.
 
-The name Flowstate and the icon are not covered by the license. Forks need their own name and icon.
+The name FnSpeak and the keycap icon are not covered by the license. Forks need their own name and icon.

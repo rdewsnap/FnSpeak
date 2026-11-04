@@ -1,4 +1,4 @@
-"""Turn validation pairs into a flowstate-bench manifest for cleanup-only runs.
+"""Turn validation pairs into a fnspeak-bench manifest for cleanup-only runs.
 
 The TTS clips are only a handful of sentences; this gives a bigger number
 on pairs the model never trained on. Categories map onto the bench's:
@@ -6,7 +6,7 @@ corrections, restarts and retractions count as "repair".
 
     uv run python -I valid_to_manifest.py data/valid_pairs.jsonl --count 200 \\
         --out data/bench-valid200.jsonl --vocab-out data/bench-valid200-vocab.txt
-    cargo run --release -p flowstate-bench -- --manifest training/data/bench-valid200.jsonl \\
+    cargo run --release -p fnspeak-bench -- --manifest training/data/bench-valid200.jsonl \\
         --vocab training/data/bench-valid200-vocab.txt --llama-server build/llama-server --local-model model.gguf
 """
 
