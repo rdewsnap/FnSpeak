@@ -13,10 +13,25 @@ use crate::history::History;
 use crate::stt::{is_silent, sanitize, SttEngine, SttError, SttHints, SAMPLE_RATE};
 use crate::vocab::{apply_corrections, apply_suggestions, VocabIndex, AUTO_APPLY_SCORE};
 use serde::{Deserialize, Serialize};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Terms passed to the speech engine and the cleanup model per dictation.
 const VOCAB_PER_DICTATION: usize = 40;
+
+/// Pause detection while dictating looks at the audio in 20 ms frames.
+const FRAME_SAMPLES: usize = SAMPLE_RATE as usize / 50;
+/// A frame below this RMS level counts as quiet. A bit above `SILENCE_RMS`,
+/// which judges whole clips: one frame of breath or room noise shouldn't
+/// count as speech, and a quiet stretch inside a word is far shorter than
+/// a pause.
+const PAUSE_RMS: f32 = 0.008;
+/// This long a quiet run after speech is a pause between words, so the
+/// audio can be cut there without splitting one.
+const PAUSE_SAMPLES: usize = SAMPLE_RATE as usize * 400 / 1000;
+/// Least speech (from its first loud frame to the pause) worth transcribing
+/// on its own. Shorter chunks give Whisper too little to go on, and it
+/// invents text from them.
+const MIN_CHUNK_SAMPLES: usize = SAMPLE_RATE as usize;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PipelineError {
@@ -28,7 +43,12 @@ pub enum PipelineError {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Timings {
+    /// Speech-to-text the user waited for: all of it for `dictate`, only
+    /// what ran after `finish` for a session.
     pub stt_ms: u64,
+    /// Speech-to-text that ran while the user was still talking.
+    #[serde(default)]
+    pub stt_live_ms: u64,
     pub cleanup_ms: u64,
     pub total_ms: u64,
 }
@@ -117,6 +137,23 @@ impl Pipeline {
         result.timings.total_ms = started.elapsed().as_millis() as u64;
         self.record(&result, ctx, (seconds * 1000.0) as i64);
         Ok(result)
+    }
+
+    /// Start a dictation that's transcribed while it's recorded: feed it
+    /// audio with `DictationSession::push` and end it with `finish`.
+    pub fn begin_dictation(&self, ctx: &DictationContext) -> Result<DictationSession, PipelineError> {
+        let hints = SttHints { vocabulary: self.vocab.relevant_terms(&ctx.searchable(), &[], VOCAB_PER_DICTATION)? };
+        Ok(DictationSession {
+            ctx: ctx.clone(),
+            hints,
+            audio: Vec::new(),
+            cut: 0,
+            scanned: 0,
+            speech_from: None,
+            quiet_from: None,
+            committed: String::new(),
+            live_stt: Duration::ZERO,
+        })
     }
 
     /// Speech-to-text, the rule-based filter and high-confidence vocabulary
@@ -221,6 +258,115 @@ impl Pipeline {
             let _ = history.save(now(), &ctx.app_id, &result.raw, &result.text, &mode, duration_ms);
         }
     }
+}
+
+/// A dictation transcribed while it's being recorded. Whenever the speaker
+/// pauses after enough speech, the audio since the last pause is transcribed
+/// right away, so on release only the last stretch is left to do. Audio is
+/// only ever cut inside a pause, never mid-word.
+pub struct DictationSession {
+    ctx: DictationContext,
+    hints: SttHints,
+    audio: Vec<f32>,
+    /// Start of the audio not transcribed yet.
+    cut: usize,
+    /// How far pause detection has looked.
+    scanned: usize,
+    /// First loud frame since `cut`.
+    speech_from: Option<usize>,
+    /// Start of the quiet run after that speech, if we're in one.
+    quiet_from: Option<usize>,
+    /// What's been transcribed so far.
+    committed: String,
+    live_stt: Duration,
+}
+
+impl DictationSession {
+    /// Add 16 kHz mono samples. Transcribes the audio since the last cut when
+    /// they complete a pause, so call it off the main thread.
+    pub fn push(&mut self, pipeline: &mut Pipeline, audio: &[f32]) -> Result<(), PipelineError> {
+        self.audio.extend_from_slice(audio);
+        while self.scanned + FRAME_SAMPLES <= self.audio.len() {
+            let at = self.scanned;
+            self.scanned += FRAME_SAMPLES;
+            if rms(&self.audio[at..self.scanned]) >= PAUSE_RMS {
+                self.speech_from.get_or_insert(at);
+                self.quiet_from = None;
+                continue;
+            }
+            let Some(speech_from) = self.speech_from else { continue };
+            let quiet_from = *self.quiet_from.get_or_insert(at);
+            if self.scanned - quiet_from >= PAUSE_SAMPLES && quiet_from - speech_from >= MIN_CHUNK_SAMPLES {
+                // Cut in the middle of the pause, leaving a little quiet on
+                // both sides of it.
+                self.commit(pipeline, quiet_from + (self.scanned - quiet_from) / 2)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Text transcribed so far, before cleanup.
+    pub fn committed(&self) -> &str {
+        &self.committed
+    }
+
+    /// Transcribe what's left and run the result through the rest of the
+    /// pipeline, exactly as `Pipeline::dictate` does.
+    pub fn finish(self, pipeline: &mut Pipeline) -> Result<DictationResult, PipelineError> {
+        let started = Instant::now();
+        let tail = &self.audio[self.cut..];
+        let mut raw = self.committed.clone();
+        if !is_silent(tail) {
+            let text = pipeline.stt.transcribe_continuing(tail, &self.hints, &raw)?;
+            join(&mut raw, &sanitize(&text, seconds(tail)));
+        }
+        let stt_ms = started.elapsed().as_millis() as u64;
+
+        let mut result = pipeline.clean(&raw, &self.ctx)?;
+        result.timings.stt_ms = stt_ms;
+        result.timings.stt_live_ms = self.live_stt.as_millis() as u64;
+        result.timings.total_ms = started.elapsed().as_millis() as u64;
+        pipeline.record(&result, &self.ctx, (seconds(&self.audio) * 1000.0) as i64);
+        Ok(result)
+    }
+
+    /// Transcribe the audio from the last cut up to `end`.
+    fn commit(&mut self, pipeline: &mut Pipeline, end: usize) -> Result<(), PipelineError> {
+        self.speech_from = None;
+        self.quiet_from = None;
+        let chunk = &self.audio[self.cut..end];
+        if is_silent(chunk) {
+            self.cut = end;
+            return Ok(());
+        }
+        let started = Instant::now();
+        let text = pipeline.stt.transcribe_continuing(chunk, &self.hints, &self.committed);
+        self.live_stt += started.elapsed();
+        // On failure the audio stays where it is, for `finish` to try again.
+        let text = sanitize(&text?, seconds(chunk));
+        join(&mut self.committed, &text);
+        self.cut = end;
+        Ok(())
+    }
+}
+
+fn rms(audio: &[f32]) -> f32 {
+    (audio.iter().map(|s| s * s).sum::<f32>() / audio.len().max(1) as f32).sqrt()
+}
+
+fn seconds(audio: &[f32]) -> f32 {
+    audio.len() as f32 / SAMPLE_RATE as f32
+}
+
+/// Append a chunk's transcript, skipping empty ones (silence, phantoms).
+fn join(text: &mut String, piece: &str) {
+    if piece.is_empty() {
+        return;
+    }
+    if !text.is_empty() {
+        text.push(' ');
+    }
+    text.push_str(piece);
 }
 
 /// Words that only start with a capital because they started the dictation.
@@ -392,6 +538,101 @@ mod tests {
         p.dictate(&speech(), &DictationContext { app_id: "com.apple.mail".into(), ..Default::default() }).unwrap();
         let last = p.history.as_ref().unwrap().last().unwrap().unwrap();
         assert_eq!((last.raw.as_str(), last.mode.as_str()), ("ship it", "filter_only"));
+    }
+
+    /// Hands out one transcript per call and remembers the text each call
+    /// was told came before it.
+    struct Chunks {
+        texts: Vec<&'static str>,
+        preceding: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    }
+    impl crate::stt::SttEngine for Chunks {
+        fn name(&self) -> &'static str {
+            "chunks"
+        }
+        fn transcribe(&mut self, audio: &[f32], hints: &SttHints) -> Result<String, SttError> {
+            self.transcribe_continuing(audio, hints, "")
+        }
+        fn transcribe_continuing(&mut self, _audio: &[f32], _hints: &SttHints, preceding: &str) -> Result<String, SttError> {
+            let mut seen = self.preceding.lock().unwrap();
+            let text = self.texts.get(seen.len()).copied().unwrap_or("");
+            seen.push(preceding.to_string());
+            Ok(text.to_string())
+        }
+    }
+
+    fn chunked(texts: Vec<&'static str>) -> (Pipeline, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        let preceding = std::sync::Arc::default();
+        let stt = Chunks { texts, preceding: std::sync::Arc::clone(&preceding) };
+        (Pipeline::new(Box::new(stt), VocabIndex::in_memory().unwrap(), CleanupMode::Raw), preceding)
+    }
+
+    fn tone(seconds: f32) -> Vec<f32> {
+        (0..(seconds * 16_000.0) as usize).map(|i| (i as f32 * 0.05).sin() * 0.2).collect()
+    }
+
+    fn quiet(seconds: f32) -> Vec<f32> {
+        vec![0.0; (seconds * 16_000.0) as usize]
+    }
+
+    /// Feed a session the way the app does, a quarter second at a time.
+    fn feed(p: &mut Pipeline, s: &mut DictationSession, audio: &[f32]) {
+        for piece in audio.chunks(4_000) {
+            s.push(p, piece).unwrap();
+        }
+    }
+
+    #[test]
+    fn session_transcribes_at_pauses() {
+        let (mut p, preceding) = chunked(vec!["Ship the build today.", "Then tell Sam."]);
+        let mut s = p.begin_dictation(&DictationContext::default()).unwrap();
+        feed(&mut p, &mut s, &[tone(1.5), quiet(0.6)].concat());
+        assert_eq!(s.committed(), "Ship the build today.");
+        feed(&mut p, &mut s, &tone(1.0));
+        let r = s.finish(&mut p).unwrap();
+        assert_eq!(r.raw, "Ship the build today. Then tell Sam.");
+        assert_eq!(*preceding.lock().unwrap(), ["", "Ship the build today."]);
+    }
+
+    #[test]
+    fn session_never_cuts_the_first_second_of_speech() {
+        let (mut p, preceding) = chunked(vec!["Yes, ship it."]);
+        let mut s = p.begin_dictation(&DictationContext::default()).unwrap();
+        feed(&mut p, &mut s, &[quiet(1.0), tone(0.6), quiet(0.6), tone(0.6)].concat());
+        assert_eq!(s.committed(), "");
+        assert_eq!(s.finish(&mut p).unwrap().raw, "Yes, ship it.");
+        assert_eq!(preceding.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn session_drops_phantom_chunks() {
+        let (mut p, _) = chunked(vec!["Thank you.", "Ship it."]);
+        let mut s = p.begin_dictation(&DictationContext::default()).unwrap();
+        feed(&mut p, &mut s, &[tone(1.2), quiet(0.6), tone(1.0)].concat());
+        assert_eq!(s.finish(&mut p).unwrap().raw, "Ship it.");
+    }
+
+    #[test]
+    fn short_session_matches_dictate() {
+        let audio = [speech(), quiet(0.2)].concat();
+        let ctx = DictationContext { text_before: "I think ".into(), ..Default::default() };
+        let mut p = pipeline("um so the kin ju build is is green", CleanupMode::FilterOnly);
+        let expected = p.dictate(&audio, &ctx).unwrap();
+        let mut s = p.begin_dictation(&ctx).unwrap();
+        feed(&mut p, &mut s, &audio);
+        let r = s.finish(&mut p).unwrap();
+        assert_eq!((r.raw, r.filtered, r.text, r.insert), (expected.raw, expected.filtered, expected.text, expected.insert));
+        assert_eq!(r.timings.stt_live_ms, 0);
+    }
+
+    #[test]
+    fn silent_session_produces_nothing() {
+        let (mut p, preceding) = chunked(vec!["Thank you for watching, see you next time."]);
+        let mut s = p.begin_dictation(&DictationContext::default()).unwrap();
+        feed(&mut p, &mut s, &quiet(3.0));
+        let r = s.finish(&mut p).unwrap();
+        assert_eq!((r.raw.as_str(), r.insert.as_str()), ("", ""));
+        assert!(preceding.lock().unwrap().is_empty());
     }
 
     #[test]
