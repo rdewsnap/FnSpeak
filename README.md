@@ -50,7 +50,7 @@ If Fn opens the emoji picker, set System Settings → Keyboard → "Press 🌐 k
 
 Audio goes to Whisper (whisper.cpp) or Parakeet (sherpa-onnx, faster), with your vocabulary passed in as a prompt. A rule-based filter strips um/uh, `I-I`, `the the`. Misheard names get matched by sound against your vocabulary (`PG vector` → `pgvector`). Then a small language model handles the judgment calls: `like`, `you know`, restarts, and corrections that reach back a few sentences. Last, a guardrail rejects any rewrite that adds words you didn't say.
 
-The cleanup model runs through llama.cpp as a sidecar on localhost. If your Mac can't run it comfortably you can point it at your own API key (Anthropic, Groq, anything OpenAI-compatible), or turn it off and just get the rule-based cleanup, which is instant. In cloud mode only text is sent, never audio, and dictations with no self-corrections go to a cheaper model.
+The cleanup model runs through llama.cpp as a sidecar on localhost. If your Mac can't run it comfortably you can point it at your own API key (Anthropic, Groq, anything OpenAI-compatible), or turn it off and just get the rule-based cleanup, which is instant. In cloud mode only text is sent, never audio, and dictations with no self-corrections go to a cheaper model. Locally you can do the same: drop a second, smaller GGUF into the models folder and pick it under Settings → Advanced → Fast model. Flowstate also keeps the local model warm while idle so the first dictation after a break isn't slower.
 
 ## Is it any good?
 

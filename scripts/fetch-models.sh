@@ -45,6 +45,17 @@ if [[ "$WHAT" == all || "$WHAT" == parakeet ]]; then
     fi
 fi
 
+# Optional fast model for simple dictations. There is no published small model
+# yet, so nothing is downloaded by default. A small fine-tuned GGUF (see
+# training/) can be dropped into the models folder and picked under Settings →
+# Advanced → Fast model; dictations without self-corrections then skip the
+# larger model. To fetch one with this script, set the URL and uncomment:
+#
+#   FAST_URL="https://example.com/your-small-cleanup-model-Q4_K_M.gguf"
+#   if [[ "$WHAT" == all || "$WHAT" == fast ]]; then
+#       fetch "$FAST_URL" "$DEST/$(basename "$FAST_URL")"
+#   fi
+
 if [[ "$WHAT" == all || "$WHAT" == cleanup ]]; then
     fetch "$CLEANUP_URL" "$DEST/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
     [[ -x "$(dirname "$0")/../build/llama-server" ]] || echo "note: local cleanup needs llama-server — run scripts/build-llama-server.sh"
