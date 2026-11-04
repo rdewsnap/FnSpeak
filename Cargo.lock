@@ -958,6 +958,7 @@ name = "flowstate-core"
 version = "0.1.1"
 dependencies = [
  "chrono",
+ "log",
  "regex",
  "reqwest",
  "rphonetic",

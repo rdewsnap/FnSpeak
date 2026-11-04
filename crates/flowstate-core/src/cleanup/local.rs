@@ -115,6 +115,7 @@ impl LocalCleaner {
         let server = LlamaServer::start(&config)?;
         let model_name = file_name(&config.model_path);
         let inner = OpenAiCompatCleaner::new(format!("{}/v1", server.base_url), None, model_name.clone())?
+            .with_prompt_cache()
             .with_timeout(config.timeout)?
             .with_context_tokens(config.context_tokens as usize);
         Ok(LocalCleaner { inner, model_name, _server: server })

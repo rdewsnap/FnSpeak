@@ -133,6 +133,9 @@ pub struct OpenAiCompatCleaner {
     model: String,
     timeout: Duration,
     context_tokens: usize,
+    /// Ask the server to keep the shared prompt prefix in its KV cache.
+    /// llama-server only; hosted APIs would reject the extra field.
+    cache_prompt: bool,
     http: reqwest::blocking::Client,
 }
 
@@ -152,7 +155,7 @@ impl OpenAiCompatCleaner {
         // The big hosted providers serve long-context models. Anything else
         // (Ollama, LM Studio) may be running a small window.
         let context_tokens = if [Self::GROQ, Self::OPENROUTER, Self::OPENAI].contains(&base_url.as_str()) { 128_000 } else { 8_192 };
-        Ok(OpenAiCompatCleaner { base_url, api_key, model: model.into(), timeout: DEFAULT_TIMEOUT, context_tokens, http: client()? })
+        Ok(OpenAiCompatCleaner { base_url, api_key, model: model.into(), timeout: DEFAULT_TIMEOUT, context_tokens, cache_prompt: false, http: client()? })
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Result<Self, CleanupError> {
@@ -165,8 +168,15 @@ impl OpenAiCompatCleaner {
         self
     }
 
+    /// Send `cache_prompt` with every request, so the system prompt is only
+    /// processed once per server.
+    pub fn with_prompt_cache(mut self) -> Self {
+        self.cache_prompt = true;
+        self
+    }
+
     fn chat(&self, system: &str, user: &str, max_tokens: u32, timeout: Duration) -> Result<String, CleanupError> {
-        let body = json!({
+        let mut body = json!({
             "model": self.model,
             "max_tokens": max_tokens,
             "temperature": 0,
@@ -175,11 +185,29 @@ impl OpenAiCompatCleaner {
                 {"role": "user", "content": user},
             ],
         });
+        if self.cache_prompt {
+            body["cache_prompt"] = json!(true);
+        }
         let mut http = self.http.post(format!("{}/chat/completions", self.base_url)).timeout(timeout).json(&body);
         if let Some(key) = &self.api_key {
             http = http.bearer_auth(key);
         }
         let resp = send(http)?;
+
+        // llama-server reports how much of the prompt it had to process. A
+        // prompt_n near the full system prompt means the cache missed.
+        let timings = &resp["timings"];
+        if timings.is_object() {
+            log::debug!(
+                "{}: prompt {} tokens in {:.0} ms ({} cached), {} generated in {:.0} ms",
+                self.model,
+                timings["prompt_n"],
+                timings["prompt_ms"].as_f64().unwrap_or(0.0),
+                timings["cache_n"],
+                timings["predicted_n"],
+                timings["predicted_ms"].as_f64().unwrap_or(0.0),
+            );
+        }
 
         let choice = &resp["choices"][0];
         if choice["finish_reason"] == "length" {
