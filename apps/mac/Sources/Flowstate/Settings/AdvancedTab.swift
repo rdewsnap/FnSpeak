@@ -7,6 +7,7 @@ struct AdvancedTab: View {
 
     @State private var hardware = detectHardware()
     @State private var exportNotice: String?
+    @AppStorage(ModelLocator.fastModelKey) private var fastModel = ""
 
     var body: some View {
         Form {
@@ -27,6 +28,20 @@ struct AdvancedTab: View {
                 }
                 if case .failed(let message) = engine.status {
                     Text(message).font(.callout).foregroundStyle(.red)
+                }
+            }
+
+            if prefs.mode == "local" {
+                Section("Fast model") {
+                    Picker("Fast model for simple dictations", selection: $fastModel) {
+                        Text("None").tag("")
+                        ForEach(ModelLocator.fastModelCandidates, id: \.lastPathComponent) {
+                            Text($0.lastPathComponent).tag($0.lastPathComponent)
+                        }
+                    }
+                    .onChange(of: fastModel) { engine.reconfigureCleanup() }
+                    Text("Dictations with no self-corrections go to this smaller model; the rest use the main one. Put extra .gguf files in the models folder. Uses more memory, since both models stay loaded.")
+                        .font(.callout).foregroundStyle(.secondary)
                 }
             }
 

@@ -31,6 +31,22 @@ enum ModelLocator {
         return files.first { $0.lastPathComponent.lowercased().contains("flowstate") } ?? files.first
     }
 
+    /// UserDefaults key for the file name of the fast model, chosen in
+    /// Settings → Advanced.
+    static let fastModelKey = "fastCleanupModel"
+
+    /// GGUFs that could serve as the fast model: everything but the main one.
+    static var fastModelCandidates: [URL] {
+        let main = cleanupModel
+        return contents(of: modelsDirectory).filter { $0.pathExtension == "gguf" && $0 != main }
+    }
+
+    /// The fast model for simple dictations, if one is chosen and still on disk.
+    static var fastCleanupModel: URL? {
+        guard let name = UserDefaults.standard.string(forKey: fastModelKey), !name.isEmpty else { return nil }
+        return fastModelCandidates.first { $0.lastPathComponent == name }
+    }
+
     /// Bundled in the app's Resources, else Homebrew's.
     static var llamaServer: URL? {
         let candidates = [
