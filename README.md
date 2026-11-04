@@ -60,7 +60,7 @@ The cleanup model runs through llama.cpp as a sidecar on localhost. If your Mac 
 cargo run -p flowstate-bench -- --manifest bench/manifest.example.jsonl --vocab bench/vocab.example.txt
 ```
 
-Record clips as 16 kHz mono WAV, e.g. `ffmpeg -f avfoundation -i ":0" -ar 16000 -ac 1 bench/clips/vocab-01.wav`, and run with `--features whisper,parakeet` for the full pipeline.
+Record clips as 16 kHz mono WAV, e.g. `ffmpeg -f avfoundation -i ":0" -ar 16000 -ac 1 bench/clips/vocab-01.wav`, and run with `--features whisper,parakeet` for the full pipeline. `--beam N` sets Whisper's beam size (1 is greedy), and the table reports STT and cleanup latency separately.
 
 I've also started fine-tuning smaller models so slower Macs can do cleanup locally. `training/` has the scripts; the data is all free datasets plus synthetic pairs, and your own recordings are never used. The 1.7B model is close to the 4B on my clips at about half the latency. Numbers in [training/RESULTS.md](training/RESULTS.md).
 

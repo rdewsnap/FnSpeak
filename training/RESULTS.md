@@ -14,3 +14,16 @@
 - Export: mlx_lm.fuse, convert_hf_to_gguf.py f16, llama-quantize Q4_K_M; served by the same build/llama-server as the baseline.
 - TTS row: bench/tts.jsonl via scripts/make-tts-clips.sh, Whisper large-v3-turbo q5_0, bench/vocab.example.txt; cleanup latency is the bench's average minus Whisper's (about 605 ms).
 - Validation row: valid_to_manifest.py, 200 ASCII pairs; its references follow the training data's conventions, so it favours the fine-tunes; 4B fallbacks are guardrail rejections.
+
+# Speech engine latency
+
+| Speech engine | Clips | WER | Terms right | Repair WER | STT latency | Cleanup latency |
+|---|---|---|---|---|---|---|
+| Whisper large-v3-turbo q5_0, beam 5 (current default) | 11 | 2.2% | 100.0% | 3.3% | 678 ms | 187 ms |
+| Whisper large-v3-turbo q5_0, beam 2 | 11 | 3.4% | 100.0% | 3.3% | 709 ms | 178 ms |
+| Whisper large-v3-turbo q5_0, beam 1 (greedy) | 11 | 2.2% | 100.0% | 3.3% | 618 ms | 174 ms |
+| Parakeet TDT 0.6B v2, greedy | 11 | 10.1% | 75.0% | 10.0% | 174 ms | 178 ms |
+
+- Setup: the TTS clips and vocabulary from the first table, cleanup always flowstate-cleanup-qwen3-1.7b Q4_K_M, three runs per row on an M4 Pro with the median shown (run 1 is the coldest). STT latency is the bench's per-clip average of the transcribe call, so it includes the first clip's Metal warm-up; the `--beam` flag sets Whisper's beam size.
+- Whisper latency is noisy: beam 5 ranged 675-800 ms, beam 1 607-692 ms, and beam 2 was not faster than beam 5 in two of three runs. Greedy saves roughly 60-100 ms per clip with no accuracy change on these 11 clips (beam 2's 3.4% WER is one word on this tiny set).
+- Parakeet is about four times faster on the speech step (about 175 ms) but gets one in four vocabulary terms wrong and four times the WER on repairs, because it has no prompt to bias with. Hotword boosting is still experimental and was not tried here. Clean synthetic voices flatter every row, so Whisper's lead on real speech and accents may be larger.
