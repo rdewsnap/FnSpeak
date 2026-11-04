@@ -11,7 +11,8 @@ use flowstate_core::stt::SttEngine;
 use flowstate_core::summary;
 use flowstate_core::tier::HardwareInfo;
 use flowstate_core::vocab::{self, VocabIndex};
-use flowstate_core::{CleanupMode, DictationContext, Pipeline};
+use flowstate_core::pipeline::DictationSession;
+use flowstate_core::{CleanupMode, DictationContext, DictationResult, Pipeline};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -175,9 +176,34 @@ pub struct Dictation {
     pub mode: Mode,
     pub cleaner: Option<String>,
     pub fallback_reason: Option<String>,
+    /// Speech-to-text after the recording ended, what the user waited for.
     pub stt_ms: u64,
+    /// Speech-to-text that ran while still recording (sessions only).
+    pub stt_live_ms: u64,
     pub cleanup_ms: u64,
     pub total_ms: u64,
+}
+
+impl From<DictationResult> for Dictation {
+    fn from(r: DictationResult) -> Self {
+        Dictation {
+            raw: r.raw,
+            text: r.text,
+            insert: r.insert,
+            press_enter: r.press_enter,
+            mode: r.mode.into(),
+            cleaner: r.cleaner,
+            fallback_reason: r.fallback_reason,
+            stt_ms: r.timings.stt_ms,
+            stt_live_ms: r.timings.stt_live_ms,
+            cleanup_ms: r.timings.cleanup_ms,
+            total_ms: r.timings.total_ms,
+        }
+    }
+}
+
+fn dictation_err(e: impl std::fmt::Display) -> FlowstateError {
+    FlowstateError::Dictation(e.to_string())
 }
 
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
@@ -259,6 +285,8 @@ pub struct FlowstateEngine {
     pipeline: Arc<Mutex<Pipeline>>,
     notes: Arc<Mutex<NotesStore>>,
     meeting: Mutex<Option<MeetingSession>>,
+    /// The dictation being recorded, if it's transcribed as it goes.
+    dictation: Mutex<Option<DictationSession>>,
     listener: Arc<RwLock<Option<Arc<dyn MeetingListener>>>>,
 }
 
@@ -280,6 +308,7 @@ impl FlowstateEngine {
             pipeline: Arc::new(Mutex::new(pipeline)),
             notes: Arc::new(Mutex::new(notes)),
             meeting: Mutex::new(None),
+            dictation: Mutex::new(None),
             listener: Arc::new(RwLock::new(None)),
         }))
     }
@@ -287,22 +316,42 @@ impl FlowstateEngine {
     /// Transcribe and clean a clip of 16 kHz mono f32 samples.
     pub fn dictate(&self, audio: Vec<f32>, context: Context) -> Result<Dictation, FlowstateError> {
         let mut p = self.pipeline.lock().unwrap();
-        let r = p.dictate(&audio, &context.into()).map_err(|e| FlowstateError::Dictation(e.to_string()))?;
-        Ok(Dictation {
-            raw: r.raw,
-            text: r.text,
-            insert: r.insert,
-            press_enter: r.press_enter,
-            mode: r.mode.into(),
-            cleaner: r.cleaner,
-            fallback_reason: r.fallback_reason,
-            stt_ms: r.timings.stt_ms,
-            cleanup_ms: r.timings.cleanup_ms,
-            total_ms: r.timings.total_ms,
-        })
+        p.dictate(&audio, &context.into()).map(Dictation::from).map_err(dictation_err)
     }
 
-    /// Switch cleanup mode or models without reloading the speech engine.
+    /// Start a dictation that's transcribed while it's recorded. Feed it with
+    /// `push_audio` and end it with `finish_dictation` or `cancel_dictation`.
+    /// Replaces a dictation that was never finished.
+    pub fn begin_dictation(&self, context: Context) -> Result<(), FlowstateError> {
+        let session = self.pipeline.lock().unwrap().begin_dictation(&context.into()).map_err(dictation_err)?;
+        *self.dictation.lock().unwrap() = Some(session);
+        Ok(())
+    }
+
+    /// Add 16 kHz mono samples to the running dictation. Blocks while a
+    /// finished stretch of speech is transcribed. Does nothing when no
+    /// dictation is running.
+    pub fn push_audio(&self, samples: Vec<f32>) -> Result<(), FlowstateError> {
+        // Always the dictation slot before the pipeline, like finish.
+        let mut slot = self.dictation.lock().unwrap();
+        let Some(session) = slot.as_mut() else { return Ok(()) };
+        let mut p = self.pipeline.lock().unwrap();
+        session.push(&mut p, &samples).map_err(dictation_err)
+    }
+
+    /// Transcribe the rest of the running dictation and clean it up.
+    pub fn finish_dictation(&self) -> Result<Dictation, FlowstateError> {
+        let session = self.dictation.lock().unwrap().take();
+        let session = session.ok_or_else(|| FlowstateError::Dictation("no dictation is running".into()))?;
+        let mut p = self.pipeline.lock().unwrap();
+        session.finish(&mut p).map(Dictation::from).map_err(dictation_err)
+    }
+
+    /// Throw away the running dictation, if any.
+    pub fn cancel_dictation(&self) {
+        self.dictation.lock().unwrap().take();
+    }
+
     pub fn configure_cleanup(&self, mode: Mode, local: Option<LocalModel>, cloud: Option<CloudConfig>) -> Result<(), FlowstateError> {
         let cleaner = build_cleaner(mode.into(), local.as_ref(), cloud.as_ref())?;
         let mut p = self.pipeline.lock().unwrap();
