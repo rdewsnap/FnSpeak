@@ -85,10 +85,69 @@ final class EngineController: ObservableObject {
         queue.async {
             engine.setSendCommand(enabled: send)
             let result = Result { try engine.dictate(audio: audio, context: context) }
-            DispatchQueue.main.async {
-                if case .success(let d) = result { self.lastDictation = d }
-                completion(result)
+            self.deliver(result, completion)
+        }
+    }
+
+    /// Whether the core has a dictation session running. Only touched on `queue`.
+    private var sessionRunning = false
+
+    /// Start a dictation that's transcribed while it's recorded. Returns where
+    /// to send the audio as it arrives (from any thread), or nil when the
+    /// engine isn't loaded yet.
+    func beginDictation(context: Context) -> (([Float]) -> Void)? {
+        guard let engine else { return nil }
+        queue.async {
+            do {
+                try engine.beginDictation(context: context)
+                self.sessionRunning = true
+            } catch {
+                Log.error("Couldn't start live transcription: \(error.localizedDescription)")
+                self.sessionRunning = false
             }
+        }
+        return { [queue] samples in
+            queue.async {
+                do {
+                    try engine.pushAudio(samples: samples)
+                } catch {
+                    // The audio stays in the session; finishing tries it again.
+                    Log.error("Live transcription failed: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    /// Finish the dictation started with `beginDictation`. `audio` is the
+    /// whole recording, used if the session couldn't be started.
+    func finishDictation(_ audio: [Float], context: Context, completion: @escaping (Result<Dictation, Error>) -> Void) {
+        guard let engine else {
+            completion(.failure(FlowstateError.Setup("Speech model is still loading")))
+            return
+        }
+        let send = prefs.allowSendCommand
+        queue.async {
+            engine.setSendCommand(enabled: send)
+            let live = self.sessionRunning
+            self.sessionRunning = false
+            let result = Result { try live ? engine.finishDictation() : engine.dictate(audio: audio, context: context) }
+            self.deliver(result, completion)
+        }
+    }
+
+    /// Drop the dictation started with `beginDictation`, if any.
+    func cancelDictation() {
+        guard let engine else { return }
+        queue.async {
+            self.sessionRunning = false
+            engine.cancelDictation()
+        }
+    }
+
+    private func deliver(_ result: Result<Dictation, Error>, _ completion: @escaping (Result<Dictation, Error>) -> Void) {
+        DispatchQueue.main.async {
+            if case .success(let d) = result { self.lastDictation = d }
+            completion(result)
         }
     }
 

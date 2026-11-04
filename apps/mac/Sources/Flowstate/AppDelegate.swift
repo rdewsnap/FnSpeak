@@ -23,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Captured when recording starts, so the text goes where the user was.
     private var pendingContext: Context?
+    /// The engine is transcribing the current recording as it goes.
+    private var liveDictation = false
     private var lastInsert: (text: String, appId: String)?
     private var started = false
     private var heardSpeech = false
@@ -132,9 +134,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             overlay.show(.message("Dictation is off in \(front.localizedName ?? "this app")"))
             return false
         }
-        pendingContext = ContextReader.current()
+        let context = ContextReader.current()
+        pendingContext = context
+        // Transcribe while the user talks, so release has little left to do.
+        let sink = engine.beginDictation(context: context)
+        liveDictation = sink != nil
         do {
-            try recorder.start()
+            try recorder.start(onChunk: sink)
             heardSpeech = false
             silentSince = nil
             Sounds.start()
@@ -142,32 +148,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             overlay.show(.listening(handsFree: prefs.triggerStyle == "toggle"))
             return true
         } catch {
+            endLiveDictation()
             overlay.show(.error("Couldn't start the microphone"))
             return false
         }
+    }
+
+    /// Drop the live session, when a recording ends without being dictated.
+    private func endLiveDictation() {
+        if liveDictation { engine.cancelDictation() }
+        liveDictation = false
     }
 
     private func finishRecording() {
         let audio = recorder.stop()
         Sounds.stop()
         phase = .idle
-        guard let context = pendingContext else { return overlay.show(.hidden) }
+        guard let context = pendingContext else {
+            endLiveDictation()
+            return overlay.show(.hidden)
+        }
         pendingContext = nil
         // Under ~0.3 s there's nothing to transcribe.
-        guard audio.count > 4_800 else { return overlay.show(.hidden) }
+        guard audio.count > 4_800 else {
+            endLiveDictation()
+            return overlay.show(.hidden)
+        }
         guard engine.isReady else {
+            endLiveDictation()
             if case .failed(let message) = engine.status { return overlay.show(.error(Overlay.reason(message))) }
             return overlay.show(.message("Still loading the speech model"))
         }
 
         overlay.show(.working)
         phase = .processing
-        engine.dictate(audio, context: context) { [weak self] result in
+        let done: (Result<Dictation, Error>) -> Void = { [weak self] result in
             guard let self else { return }
             self.phase = .idle
             switch result {
             case .success(let dictation):
-                Log.info("Dictation ok: stt \(dictation.sttMs) ms, cleanup \(dictation.cleanupMs) ms (\(dictation.cleaner ?? "no model"))")
+                Log.info("Dictation ok: stt \(dictation.sttMs) ms after release (\(dictation.sttLiveMs) ms while talking), cleanup \(dictation.cleanupMs) ms (\(dictation.cleaner ?? "no model"))")
                 let send = dictation.pressEnter && self.prefs.allowSendCommand
                 guard !dictation.insert.isEmpty else {
                     // "Send it" on its own sends what's already typed.
@@ -185,6 +205,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Log.error("Dictation failed: \(error.localizedDescription)")
                 self.overlay.show(.error(Overlay.reason(for: error)))
             }
+        }
+        if liveDictation {
+            liveDictation = false
+            engine.finishDictation(audio, context: context, completion: done)
+        } else {
+            engine.dictate(audio, context: context, completion: done)
         }
     }
 
@@ -208,6 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func cancelRecording() {
         recorder.stop()
+        endLiveDictation()
         phase = .idle
         pendingContext = nil
         overlay.show(.hidden)
