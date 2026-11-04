@@ -3,6 +3,9 @@ import AVFoundation
 /// Captures the microphone as 16 kHz mono Float32, the format every speech
 /// engine in the core expects. Audio is kept in memory only.
 final class AudioRecorder {
+    /// How much new audio to collect before handing it to `onChunk` (250 ms).
+    static let chunkSamples = 4_000
+
     /// Rough input level (0…1) for the overlay, called on the main queue.
     var onLevel: ((Float) -> Void)?
 
@@ -10,6 +13,9 @@ final class AudioRecorder {
     private let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
     private var converter: AVAudioConverter?
     private var samples: [Float] = []
+    /// What's been handed to `onChunk` so far, and the handler itself.
+    private var emitted = 0
+    private var onChunk: (([Float]) -> Void)?
     private let lock = NSLock()
     private(set) var isRecording = false
     private var appliedMicrophone = ""
@@ -27,9 +33,16 @@ final class AudioRecorder {
         AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     }
 
-    func start() throws {
+    /// Start recording. `onChunk` gets the audio as it arrives, about every
+    /// 250 ms and once more with the rest on `stop()`, in order. It's called
+    /// on the audio thread, so it should only hand the samples off.
+    func start(onChunk: (([Float]) -> Void)? = nil) throws {
         guard !isRecording else { return }
-        lock.withLock { samples.removeAll(keepingCapacity: true) }
+        lock.withLock {
+            samples.removeAll(keepingCapacity: true)
+            emitted = 0
+            self.onChunk = onChunk
+        }
         if let lender = Self.lender {
             converter = AVAudioConverter(from: target, to: target)
             lender.lend { [weak self] in self?.append($0) }
@@ -69,7 +82,19 @@ final class AudioRecorder {
             engine.stop()
         }
         isRecording = false
-        return lock.withLock { samples }
+        return lock.withLock {
+            emitChunk(force: true)
+            onChunk = nil
+            return samples
+        }
+    }
+
+    /// Hand new audio to `onChunk`. Called with `lock` held, which keeps the
+    /// chunks in order.
+    private func emitChunk(force: Bool) {
+        guard let onChunk, samples.count > emitted, force || samples.count - emitted >= Self.chunkSamples else { return }
+        onChunk(Array(samples[emitted...]))
+        emitted = samples.count
     }
 
     private func append(_ buffer: AVAudioPCMBuffer) {
@@ -91,7 +116,10 @@ final class AudioRecorder {
         }
         guard error == nil, let data = out.floatChannelData?[0] else { return }
         let chunk = Array(UnsafeBufferPointer(start: data, count: Int(out.frameLength)))
-        lock.withLock { samples.append(contentsOf: chunk) }
+        lock.withLock {
+            samples.append(contentsOf: chunk)
+            emitChunk(force: false)
+        }
 
         let rms = sqrt(chunk.reduce(0) { $0 + $1 * $1 } / Float(max(chunk.count, 1)))
         let level = min(1, rms * 12)
