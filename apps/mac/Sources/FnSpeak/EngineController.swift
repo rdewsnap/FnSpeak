@@ -194,7 +194,7 @@ final class EngineController: ObservableObject {
                     _ = try engine.addSnippet(trigger: trigger, text: text)
                 }
             } catch {
-                problem = error.localizedDescription
+                problem = MeetingController.message(for: error)
             }
             DispatchQueue.main.async { completion(problem) }
         }
