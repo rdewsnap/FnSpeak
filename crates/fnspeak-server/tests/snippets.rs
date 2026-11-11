@@ -70,3 +70,43 @@ async fn members_share_snippets() {
     let (_, none) = app.get("/v1/snippets", &outsider).await;
     assert!(none["snippets"].as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn one_user_in_two_teams_keeps_their_snippets_apart() {
+    let app = TestApp::new().await;
+    let user = app.sign_in("sn-two@example.com").await;
+    let mut teams = Vec::new();
+    for name in ["Alpha", "Beta"] {
+        let (status, team) = app.post("/v1/teams", &user, json!({ "name": name })).await;
+        assert_eq!(status, StatusCode::CREATED, "{team}");
+        teams.push(team["id"].as_str().unwrap().to_string());
+    }
+    let (a_path, b_path) = (format!("/v1/teams/{}/snippets", teams[0]), format!("/v1/teams/{}/snippets", teams[1]));
+    let (status, a) = app.post(&a_path, &user, json!({ "trigger": "alpha handbook", "text": "alpha text" })).await;
+    assert_eq!(status, StatusCode::CREATED, "{a}");
+    let (status, b) = app.post(&b_path, &user, json!({ "trigger": "beta handbook", "text": "beta text" })).await;
+    assert_eq!(status, StatusCode::CREATED, "{b}");
+    let a_id = a["id"].as_str().unwrap().to_string();
+
+    // The combined list has both, each under its own team's name.
+    let (_, all) = app.get("/v1/snippets", &user).await;
+    let list = all["snippets"].as_array().unwrap();
+    assert_eq!(list.len(), 2, "{all}");
+    let team_of = |trigger: &str| list.iter().find(|s| s["trigger"] == trigger).unwrap()["team_name"].clone();
+    assert_eq!(team_of("alpha handbook"), "Alpha");
+    assert_eq!(team_of("beta handbook"), "Beta");
+
+    // Team A's snippet can't be reached through team B's path.
+    let wrong = format!("{b_path}/{a_id}");
+    assert_eq!(app.call("PATCH", &wrong, Some(&user), Some(json!({ "text": "hijacked" }))).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(app.call("DELETE", &wrong, Some(&user), None).await.0, StatusCode::NOT_FOUND);
+    let (_, after) = app.get(&a_path, &user).await;
+    let kept = after["snippets"].as_array().unwrap();
+    assert_eq!(kept.len(), 1);
+    assert_eq!((kept[0]["trigger"].as_str(), kept[0]["text"].as_str()), (Some("alpha handbook"), Some("alpha text")));
+
+    // Edits go through the same rules as adding.
+    let right = format!("{a_path}/{a_id}");
+    assert_eq!(app.call("PATCH", &right, Some(&user), Some(json!({ "trigger": "handbook" }))).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(app.call("PATCH", &right, Some(&user), Some(json!({ "text": "   " }))).await.0, StatusCode::BAD_REQUEST);
+}
