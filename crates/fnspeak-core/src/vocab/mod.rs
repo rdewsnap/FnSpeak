@@ -134,7 +134,24 @@ impl VocabIndex {
                  PRIMARY KEY (heard, corrected)
              );",
         )?;
-        Ok(VocabIndex { conn, dm: DoubleMetaphone::new(None) })
+        let mut index = VocabIndex { conn, dm: DoubleMetaphone::new(None) };
+        index.settle_correction_chains()?;
+        Ok(index)
+    }
+
+    /// Corrections learned before a later fix could retarget an earlier one
+    /// may still be chained ("whisper" → "Whispr", "whispr" → "Wispr").
+    /// Collapse them, oldest fix first so the newest spelling wins.
+    fn settle_correction_chains(&mut self) -> Result<()> {
+        let rows: Vec<(String, String)> = {
+            let mut stmt = self.conn.prepare("SELECT heard, corrected FROM corrections ORDER BY last_seen, rowid")?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<std::result::Result<_, _>>()?;
+            rows
+        };
+        for (heard, corrected) in rows {
+            self.retarget_corrections(&heard, &corrected)?;
+        }
+        Ok(())
     }
 
     /// Add terms from a source. Re-adding an existing term updates its spelling.
@@ -686,6 +703,23 @@ mod tests {
         // The rejected spelling doesn't linger in the vocabulary either.
         let terms: Vec<String> = v.terms(None).unwrap().into_iter().map(|t| t.text).collect();
         assert!(terms.contains(&"Kinju".to_string()) && !terms.contains(&"Kenjoo".to_string()));
+    }
+
+    #[test]
+    fn chains_learned_earlier_are_settled_on_open() {
+        let mut v = VocabIndex::in_memory().unwrap();
+        v.conn
+            .execute_batch(
+                "INSERT INTO corrections (heard, corrected, count, last_seen) VALUES
+                     ('kenju', 'Kenjoo', 1, 100), ('kenjoo', 'Kinju', 1, 200);",
+            )
+            .unwrap();
+        v.add_terms(Source::Learned, ["Kenjoo", "Kinju"]).unwrap();
+        v.settle_correction_chains().unwrap();
+        let rules = v.corrections().unwrap();
+        assert!(rules.contains(&LearnedCorrection { heard: "kenju".into(), corrected: "Kinju".into() }));
+        assert!(!rules.iter().any(|c| c.corrected == "Kenjoo"));
+        assert!(!v.terms(None).unwrap().iter().any(|t| t.text == "Kenjoo"));
     }
 
     #[test]
