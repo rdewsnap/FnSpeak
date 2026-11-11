@@ -464,7 +464,7 @@ fn score_match(heard: &str, heard_norm: &str, words: usize, term: &str, term_nor
     Some(0.55 + 0.4 * similarity)
 }
 
-fn word_spans(text: &str) -> Vec<(usize, usize)> {
+pub(crate) fn word_spans(text: &str) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
     let mut start = None;
     for (i, c) in text.char_indices() {
