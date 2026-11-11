@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 /// Keeps notes and meetings in step with the FnSpeak server, and the
-/// team glossary in the vocabulary. Runs every minute and shortly after
+/// team glossary and team snippets in the core. Runs every minute and shortly after
 /// local changes, only while signed in, and only syncs notes and meetings
 /// when the user turned that on.
 ///
@@ -19,6 +19,8 @@ final class SyncEngine: ObservableObject {
     @Published private(set) var syncing = false
     /// The id mapping and sharing, published for the share menus.
     @Published private(set) var state: SyncState?
+    /// Bumped when the team snippets in the core change, so the Snippets tab reloads.
+    @Published private(set) var snippetsRevision = 0
 
     private weak var engine: EngineController?
     private weak var meetings: MeetingController?
@@ -28,6 +30,7 @@ final class SyncEngine: ObservableObject {
     private var timer: Timer?
     private var rerun = false
     private var appliedGlossary: [String]?
+    private var appliedSnippets: [ServerClient.TeamSnippet]?
     /// Revisions this engine caused by importing, so they don't trigger another run.
     private var ownNotesRevision: Int?
     private var ownMeetingsRevision: Int?
@@ -100,8 +103,13 @@ final class SyncEngine: ObservableObject {
         lastError = nil
         state = nil
         appliedGlossary = nil
+        appliedSnippets = nil
         if let core = engine?.core {
-            worker.async { _ = try? core.replaceTerms(source: .team, terms: []) }
+            worker.async {
+                _ = try? core.replaceTerms(source: .team, terms: [])
+                _ = try? core.replaceTeamSnippets(snippets: [])
+                DispatchQueue.main.async { self.snippetsRevision += 1 }
+            }
         }
     }
 
@@ -160,6 +168,13 @@ final class SyncEngine: ObservableObject {
                 try await onWorker { _ = try core.replaceTerms(source: .team, terms: []) }
                 appliedGlossary = []
             }
+            if prefs.syncTeamSnippets {
+                try await pullSnippets(client, core)
+            } else if appliedSnippets != [] {
+                try await onWorker { _ = try core.replaceTeamSnippets(snippets: []) }
+                appliedSnippets = []
+                snippetsRevision += 1
+            }
             if prefs.syncEnabled {
                 if (meetings?.phase ?? .idle) == .idle {
                     try await syncItems(client, core)
@@ -190,6 +205,21 @@ final class SyncEngine: ObservableObject {
         try await onWorker { _ = try core.replaceTerms(source: .team, terms: terms) }
         appliedGlossary = terms
         Log.info("Sync: \(terms.count) team glossary terms")
+    }
+
+    /// A failed pull throws before anything is replaced, so the snippets
+    /// already in the core stay as they were.
+    private func pullSnippets(_ client: ServerClient, _ core: FnSpeakEngine) async throws {
+        let remote = try await client.teamSnippets()
+        guard remote != appliedSnippets else { return }
+        let input = remote.map {
+            TeamSnippetInput(id: $0.id, trigger: $0.trigger, text: $0.text, teamId: $0.teamId,
+                             teamName: $0.teamName, canEdit: $0.canEdit, updatedAt: $0.updatedAt)
+        }
+        try await onWorker { _ = try core.replaceTeamSnippets(snippets: input) }
+        appliedSnippets = remote
+        snippetsRevision += 1
+        Log.info("Sync: \(remote.count) team snippets")
     }
 
     private struct Local {

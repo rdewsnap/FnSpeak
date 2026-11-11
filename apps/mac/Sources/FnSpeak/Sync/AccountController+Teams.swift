@@ -44,4 +44,31 @@ extension AccountController {
             NotificationCenter.default.post(name: .accountChanged, object: self)
         }
     }
+
+    /// Post a personal snippet to a team. The personal copy stays.
+    func shareSnippet(_ snippet: Snippet, with team: ServerClient.Team) {
+        run { client in
+            _ = try await client.addTeamSnippet(trigger: snippet.trigger, text: snippet.text, team: team.id)
+            self.notice = "Shared \"\(snippet.trigger)\" with \(team.name)."
+            NotificationCenter.default.post(name: .accountChanged, object: self)
+        }
+    }
+
+    func updateTeamSnippet(_ snippet: Snippet, trigger: String, text: String) {
+        guard let teamId = snippet.teamId else { return }
+        run { client in
+            _ = try await client.updateTeamSnippet(id: snippet.id, team: teamId, trigger: trigger, text: text)
+            self.notice = "Updated \"\(trigger)\"."
+            NotificationCenter.default.post(name: .accountChanged, object: self)
+        }
+    }
+
+    func removeTeamSnippet(_ snippet: Snippet) {
+        guard let teamId = snippet.teamId else { return }
+        run { client in
+            try await client.removeTeamSnippet(id: snippet.id, team: teamId)
+            self.notice = "Removed \"\(snippet.trigger)\" from \(snippet.teamName ?? "the team")."
+            NotificationCenter.default.post(name: .accountChanged, object: self)
+        }
+    }
 }

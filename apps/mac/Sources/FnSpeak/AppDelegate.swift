@@ -198,7 +198,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 TextInserter.insert(dictation.insert, bundleId: context.appId)
                 if send { TextInserter.pressReturn() }
                 self.lastInsert = (dictation.insert, context.appId)
-                if self.prefs.learnFromCorrections { self.editWatcher.watch(dictation.insert) }
+                // Snippet text isn't something the user dictated; edits to it teach nothing.
+                if self.prefs.learnFromCorrections, dictation.expandedSnippets == 0 { self.editWatcher.watch(dictation.insert) }
                 RecentDictations.shared.add(dictation.text)
                 self.overlay.show(.pasted)
             case .failure(let error):

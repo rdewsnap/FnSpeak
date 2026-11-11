@@ -171,6 +171,52 @@ final class EngineController: ObservableObject {
         queue.async { _ = try? engine.removeTerm(term: term) }
     }
 
+    // MARK: - Snippets
+
+    func snippets(completion: @escaping ([Snippet]) -> Void) {
+        guard let engine else { return completion([]) }
+        queue.async {
+            let all = (try? engine.snippets()) ?? []
+            DispatchQueue.main.async { completion(all) }
+        }
+    }
+
+    /// Add a personal snippet, or change the one with `id`. Completes with
+    /// the problem to show, or nil when it was saved.
+    func saveSnippet(id: String?, trigger: String, text: String, completion: @escaping (String?) -> Void) {
+        guard let engine else { return completion("FnSpeak is still loading.") }
+        queue.async {
+            var problem: String?
+            do {
+                if let id {
+                    _ = try engine.updateSnippet(id: id, trigger: trigger, text: text)
+                } else {
+                    _ = try engine.addSnippet(trigger: trigger, text: text)
+                }
+            } catch {
+                problem = error.localizedDescription
+            }
+            DispatchQueue.main.async { completion(problem) }
+        }
+    }
+
+    func removeSnippet(id: String, completion: @escaping () -> Void) {
+        guard let engine else { return completion() }
+        queue.async {
+            _ = try? engine.removeSnippet(id: id)
+            DispatchQueue.main.async { completion() }
+        }
+    }
+
+    /// Why `trigger` can't be used for a personal snippet, or nil if it can.
+    func snippetTriggerProblem(_ trigger: String, ignoring id: String?, completion: @escaping (String?) -> Void) {
+        guard let engine else { return completion(nil) }
+        queue.async {
+            let problem = engine.validateSnippetTrigger(trigger: trigger, ignoringId: id)
+            DispatchQueue.main.async { completion(problem) }
+        }
+    }
+
     /// Learn from the user editing a dictation; completes with what was learned.
     func learnFromEdit(inserted: String, edited: String, completion: @escaping ([LearnedCorrection]) -> Void) {
         guard let engine else { return }

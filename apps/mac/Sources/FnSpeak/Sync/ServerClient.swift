@@ -90,6 +90,26 @@ struct ServerClient {
         let _: AddedTerms = try await send("POST", "teams/\(teamId)/glossary", body: ["terms": terms])
     }
 
+    // MARK: - Snippets
+
+    /// Snippets from every team the user is on.
+    func teamSnippets() async throws -> [TeamSnippet] {
+        let list: TeamSnippetList = try await send("GET", "snippets")
+        return list.snippets
+    }
+
+    func addTeamSnippet(trigger: String, text: String, team teamId: String) async throws -> TeamSnippet {
+        try await send("POST", "teams/\(teamId)/snippets", body: ["trigger": trigger, "text": text])
+    }
+
+    func updateTeamSnippet(id: String, team teamId: String, trigger: String, text: String) async throws -> TeamSnippet {
+        try await send("PATCH", "teams/\(teamId)/snippets/\(id)", body: ["trigger": trigger, "text": text])
+    }
+
+    func removeTeamSnippet(id: String, team teamId: String) async throws {
+        try await sendEmpty("DELETE", "teams/\(teamId)/snippets/\(id)")
+    }
+
     // MARK: - Sync
 
     func pull(since cursor: Int64, limit: Int = 200) async throws -> Changes {
@@ -323,6 +343,19 @@ extension ServerClient {
 
     struct GlossaryList: Decodable { let terms: [GlossaryTerm] }
     struct AddedTerms: Decodable {}
+
+    struct TeamSnippet: Decodable, Equatable, Identifiable {
+        let id: String
+        let teamId: String
+        let teamName: String
+        let trigger: String
+        let text: String
+        let addedBy: String?
+        let canEdit: Bool
+        let updatedAt: Int64
+    }
+
+    struct TeamSnippetList: Decodable { let snippets: [TeamSnippet] }
 
     // Sync
 
