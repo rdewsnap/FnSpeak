@@ -32,6 +32,12 @@ const PHRASES: &[(&str, Command, bool)] = &[
     ("send that", Command::Send, true),
 ];
 
+/// Whether `key` (lowercase words, single spaces) is one of the spoken
+/// commands. Snippet triggers can't be.
+pub fn is_command_phrase(key: &str) -> bool {
+    PHRASES.iter().any(|&(phrase, _, _)| phrase == key)
+}
+
 /// Take commands off the end of `text`. Returns the text to clean and
 /// insert, and what the commands asked for. `send` enables "send it".
 pub fn split_trailing(text: &str, send: bool) -> (String, Trailing) {
