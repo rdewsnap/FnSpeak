@@ -1,5 +1,5 @@
 //! FnSpeak's optional backend: accounts and teams, note and meeting sync,
-//! a shared team glossary, hosted cleanup, and an MCP endpoint so AI
+//! a shared team glossary and team snippets, hosted cleanup, and an MCP endpoint so AI
 //! assistants can read what you've dictated. The app works fully without it.
 
 pub mod auth;
@@ -11,6 +11,7 @@ pub mod llm;
 pub mod mail;
 pub mod mcp;
 pub mod ratelimit;
+pub mod snippets;
 pub mod store;
 pub mod sync;
 pub mod teams;
@@ -63,6 +64,9 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/teams/{id}/glossary", get(glossary::list).post(glossary::add))
         .route("/v1/teams/{id}/glossary/{term_id}", delete(glossary::remove))
         .route("/v1/glossary", get(glossary::mine))
+        .route("/v1/teams/{id}/snippets", get(snippets::list).post(snippets::add))
+        .route("/v1/teams/{id}/snippets/{snippet_id}", patch(snippets::update).delete(snippets::remove))
+        .route("/v1/snippets", get(snippets::mine))
         .route("/v1/invites/{token}", get(teams::show_invite))
         .route("/v1/invites/{token}/accept", post(teams::accept_invite))
         .route("/v1/notes", get(sync::list_notes))
