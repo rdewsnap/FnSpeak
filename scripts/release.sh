@@ -26,7 +26,7 @@ if [[ "$branch" != "main" ]]; then
     echo "refusing to release from '$branch'; switch to main first" >&2
     exit 1
 fi
-if [[ -n "$(git status --porcelain)" ]]; then
+if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
     echo "refusing to release with a dirty working tree" >&2
     exit 1
 fi
