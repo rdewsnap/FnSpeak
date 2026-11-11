@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindow: MainWindowController?
     private var onboardingWindow: NSWindow?
     private var prefsObserver: AnyCancellable?
+    private var signalSources: [DispatchSourceSignal] = []
 
     private enum Phase { case idle, listening, processing }
     private var phase = Phase.idle { didSet { updateStatusIcon() } }
@@ -31,7 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var silentSince: Date?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        Log.info("FnSpeak \(AppInfo.version) starting on macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
+        let atLogin = Self.launchedAtLogin
+        Log.info("FnSpeak \(AppInfo.version) starting on macOS \(ProcessInfo.processInfo.operatingSystemVersionString)\(atLogin ? ", at login" : "")")
+        quitOnTerminationSignal()
         MainMenu.install(target: self, settings: #selector(openSettings), about: #selector(openAbout))
         if let directory = DevTools.snapshotDirectory {
             return DevTools.run(engine: engine, indexer: indexer, into: directory)
@@ -62,9 +65,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if prefs.onboarded {
             begin()
             // Opened by hand, show the window; started at login, stay out of the way.
-            if !Self.launchedAtLogin { showSettings(tab: .home) }
+            if !atLogin { showSettings(tab: .home) }
         } else {
             showOnboarding()
+        }
+    }
+
+    /// `kill` and friends skip `applicationWillTerminate` unless asked nicely,
+    /// which would leave the cleanup server running. Turn them into a quit.
+    private func quitOnTerminationSignal() {
+        for number in [SIGTERM, SIGINT] {
+            signal(number, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
+            source.setEventHandler { NSApp.terminate(nil) }
+            source.resume()
+            signalSources.append(source)
         }
     }
 

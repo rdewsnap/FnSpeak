@@ -10,6 +10,7 @@
 #   SIGN_IDENTITY    "Developer ID Application: …" (default: the first one in the keychain)
 #   NOTARY_PROFILE   notarytool Keychain profile (default: fnspeak), see scripts/notarize.sh
 #   LLAMA_SERVER     llama-server to bundle (default: build/llama-server)
+#   DIST_DIR         where the dmg and zip are written (default: dist/)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -21,7 +22,7 @@ for arg in "$@"; do
     case "$arg" in
         --upload) UPLOAD=1 ;;
         --no-notarize) NOTARIZE=0 ;;
-        -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown option: $arg" >&2; exit 2 ;;
     esac
 done
@@ -56,7 +57,7 @@ fi
 echo "==> FnSpeak $VERSION, signed as $SIGN_IDENTITY"
 SIGN_ID="$SIGN_IDENTITY" scripts/build-mac.sh
 
-DIST="$ROOT/dist"
+DIST="${DIST_DIR:-$ROOT/dist}"
 mkdir -p "$DIST"
 DMG="$DIST/FnSpeak-$VERSION.dmg"
 ZIP="$DIST/FnSpeak-$VERSION.zip"
