@@ -37,6 +37,10 @@ pub struct LlmConfig {
     pub api_key: String,
     pub model: String,
     pub summary_model: String,
+    /// Sent as `reasoning_effort` on cleanup calls to an OpenAI-compatible
+    /// API. Models that reason by default answer faster with it turned down;
+    /// the accepted values differ per model, so there is no default.
+    pub reasoning_effort: Option<String>,
 }
 
 // Hand-written so the API key never lands in logs.
@@ -47,6 +51,7 @@ impl std::fmt::Debug for LlmConfig {
             .field("base_url", &self.base_url)
             .field("model", &self.model)
             .field("summary_model", &self.summary_model)
+            .field("reasoning_effort", &self.reasoning_effort)
             .finish_non_exhaustive()
     }
 }
@@ -107,6 +112,7 @@ impl Config {
                     base_url: base_url.trim_end_matches('/').to_string(),
                     api_key,
                     summary_model: var("FNSPEAK_LLM_SUMMARY_MODEL").unwrap_or_else(|| model.clone()),
+                    reasoning_effort: var("FNSPEAK_LLM_REASONING_EFFORT"),
                     model,
                 })
             }

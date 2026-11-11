@@ -49,6 +49,7 @@ async fn app_with_llm(base_url: &str) -> TestApp {
         api_key: "sk-test".into(),
         model: "claude-haiku-5-5".into(),
         summary_model: "claude-haiku-5-5".into(),
+        reasoning_effort: None,
     });
     TestApp::with_config(config).await
 }
@@ -145,6 +146,61 @@ async fn openai_style_requests_from_the_app_use_the_server_prompt() {
     assert!(sent["system"].as_str().unwrap().contains("Resolve self-corrections"));
     assert!(sent.get("temperature").is_none());
     assert_eq!(sent["messages"][0]["content"], "<style>Casual chat.</style>\n<transcript>um send it to priya</transcript>");
+}
+
+/// A stand-in for an OpenAI-compatible chat completions API.
+async fn fake_openai() -> (String, Seen) {
+    let seen: Seen = Arc::default();
+    let log = seen.clone();
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(move |headers: HeaderMap, Json(body): Json<Value>| {
+            let log = log.clone();
+            async move {
+                log.lock().unwrap().push((headers, body));
+                Json(json!({
+                    "choices": [{ "message": { "content": "## Summary\n- Send it to Priya on Friday." }, "finish_reason": "stop" }],
+                    "usage": { "prompt_tokens": 120, "completion_tokens": 30 },
+                }))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{addr}/v1"), seen)
+}
+
+#[tokio::test]
+async fn openai_upstream_gets_reasoning_effort_on_cleanup_only() {
+    let (url, seen) = fake_openai().await;
+    let mut config = Config::for_tests();
+    config.llm = Some(LlmConfig {
+        provider: LlmProvider::OpenAi,
+        base_url: url,
+        api_key: "sk-test".into(),
+        model: "gpt-6-luna".into(),
+        summary_model: "gpt-6-luna".into(),
+        reasoning_effort: Some("none".into()),
+    });
+    let app = TestApp::with_config(config).await;
+    let token = app.sign_in("luna@example.com").await;
+
+    let (status, body) = app.post("/v1/cleanup", &token, dictation()).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = app
+        .post("/v1/summarize", &token, json!({ "title": "Sync", "transcript": "[00:00:01] Me: ship Friday?" }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let seen = seen.lock().unwrap();
+    let cleanup = &seen[0].1;
+    assert_eq!(cleanup["model"], "gpt-6-luna");
+    assert_eq!(cleanup["reasoning_effort"], "none");
+    // Not api.openai.com, so the older field name.
+    assert_eq!(cleanup["max_tokens"], 2048);
+    assert!(cleanup.get("max_completion_tokens").is_none());
+    assert!(seen[1].1.get("reasoning_effort").is_none());
 }
 
 #[tokio::test]

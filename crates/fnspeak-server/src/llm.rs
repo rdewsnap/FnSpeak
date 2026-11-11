@@ -91,14 +91,17 @@ async fn complete(http: &reqwest::Client, llm: &LlmConfig, call: Call<'_>) -> Ap
             Ok(Completion { text, input_tokens: usage.0, output_tokens: usage.1 })
         }
         LlmProvider::OpenAi => {
-            let body = json!({
+            let mut body = json!({
                 "model": model,
-                "max_tokens": max_tokens,
                 "messages": [
                     { "role": "system", "content": system },
                     { "role": "user", "content": user },
                 ],
             });
+            body[tokens_field(&llm.base_url)] = json!(max_tokens);
+            if let (Effort::Low, Some(level)) = (&effort, &llm.reasoning_effort) {
+                body["reasoning_effort"] = json!(level);
+            }
             let resp = http
                 .post(format!("{}/chat/completions", llm.base_url))
                 .timeout(timeout)
@@ -118,6 +121,16 @@ async fn complete(http: &reqwest::Client, llm: &LlmConfig, call: Call<'_>) -> Ap
                 output_tokens: v["usage"]["completion_tokens"].as_i64().unwrap_or(0),
             })
         }
+    }
+}
+
+/// OpenAI's current models reject `max_tokens`; other OpenAI-compatible
+/// servers may only know that name.
+fn tokens_field(base_url: &str) -> &'static str {
+    if crate::config::host_of(base_url) == "api.openai.com" {
+        "max_completion_tokens"
+    } else {
+        "max_tokens"
     }
 }
 
@@ -437,6 +450,13 @@ pub async fn summarize(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn openai_itself_gets_the_newer_token_field() {
+        assert_eq!(tokens_field("https://api.openai.com/v1"), "max_completion_tokens");
+        assert_eq!(tokens_field("https://api.groq.com/openai/v1"), "max_tokens");
+        assert_eq!(tokens_field("http://localhost:11434/v1"), "max_tokens");
+    }
 
     #[test]
     fn prompts_are_embedded() {

@@ -3,6 +3,7 @@
 
 use super::{build_user_message, tidy_output, Cleaner, CleanupError, CleanupRequest, Llm, SYSTEM_PROMPT};
 use serde_json::{json, Value};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// Cleanup sits between "stop talking" and "text appears"; past this, the
@@ -125,6 +126,40 @@ impl Llm for AnthropicCleaner {
 }
 
 /// Any OpenAI-style chat completions endpoint: Groq, OpenRouter, OpenAI,
+/// The request fields OpenAI-compatible servers disagree on. OpenAI's
+/// current models reject `max_tokens` and a fixed temperature, and reason
+/// before answering unless told not to; most other servers only know the
+/// older fields. Start from a guess per host and adjust when a server says
+/// which field it won't take.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Dialect {
+    completion_tokens: bool,
+    temperature: bool,
+    no_reasoning: bool,
+}
+
+impl Dialect {
+    fn for_url(base_url: &str) -> Self {
+        let openai = base_url == OpenAiCompatCleaner::OPENAI;
+        Dialect { completion_tokens: openai, temperature: true, no_reasoning: openai }
+    }
+
+    /// Drop or swap the field a 400 complains about. False if the error is
+    /// about something else, so the caller stops retrying.
+    fn adapt(&mut self, error: &str) -> bool {
+        if self.no_reasoning && error.contains("reasoning_effort") {
+            self.no_reasoning = false;
+        } else if self.temperature && error.contains("temperature") {
+            self.temperature = false;
+        } else if !self.completion_tokens && error.contains("max_completion_tokens") {
+            self.completion_tokens = true;
+        } else {
+            return false;
+        }
+        true
+    }
+}
+
 /// Ollama or LM Studio on another machine, and FnSpeak Cloud.
 #[derive(Clone)]
 pub struct OpenAiCompatCleaner {
@@ -136,6 +171,8 @@ pub struct OpenAiCompatCleaner {
     /// Ask the server to keep the shared prompt prefix in its KV cache.
     /// llama-server only; hosted APIs would reject the extra field.
     cache_prompt: bool,
+    /// Shared between clones, so what one request learns the next one uses.
+    dialect: Arc<Mutex<Dialect>>,
     http: reqwest::blocking::Client,
 }
 
@@ -155,7 +192,17 @@ impl OpenAiCompatCleaner {
         // The big hosted providers serve long-context models. Anything else
         // (Ollama, LM Studio) may be running a small window.
         let context_tokens = if [Self::GROQ, Self::OPENROUTER, Self::OPENAI].contains(&base_url.as_str()) { 128_000 } else { 8_192 };
-        Ok(OpenAiCompatCleaner { base_url, api_key, model: model.into(), timeout: DEFAULT_TIMEOUT, context_tokens, cache_prompt: false, http: client()? })
+        let dialect = Arc::new(Mutex::new(Dialect::for_url(&base_url)));
+        Ok(OpenAiCompatCleaner {
+            base_url,
+            api_key,
+            model: model.into(),
+            timeout: DEFAULT_TIMEOUT,
+            context_tokens,
+            cache_prompt: false,
+            dialect,
+            http: client()?,
+        })
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Result<Self, CleanupError> {
@@ -184,23 +231,38 @@ impl OpenAiCompatCleaner {
     }
 
     fn chat(&self, system: &str, user: &str, max_tokens: u32, timeout: Duration) -> Result<String, CleanupError> {
-        let mut body = json!({
-            "model": self.model,
-            "max_tokens": max_tokens,
-            "temperature": 0,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        });
-        if self.cache_prompt {
-            body["cache_prompt"] = json!(true);
-        }
-        let mut http = self.http.post(format!("{}/chat/completions", self.base_url)).timeout(timeout).json(&body);
-        if let Some(key) = &self.api_key {
-            http = http.bearer_auth(key);
-        }
-        let resp = send(http)?;
+        let mut dialect = *self.dialect.lock().unwrap_or_else(|e| e.into_inner());
+        let resp = loop {
+            let mut body = json!({
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            });
+            body[if dialect.completion_tokens { "max_completion_tokens" } else { "max_tokens" }] = json!(max_tokens);
+            if dialect.temperature {
+                body["temperature"] = json!(0);
+            }
+            if dialect.no_reasoning {
+                body["reasoning_effort"] = json!("none");
+            }
+            if self.cache_prompt {
+                body["cache_prompt"] = json!(true);
+            }
+            let mut http = self.http.post(format!("{}/chat/completions", self.base_url)).timeout(timeout).json(&body);
+            if let Some(key) = &self.api_key {
+                http = http.bearer_auth(key);
+            }
+            match send(http) {
+                // Each retry gives up one field, so this ends in three at most.
+                Err(CleanupError::Request(e)) if e.starts_with("HTTP 400") && dialect.adapt(&e) => {
+                    log::info!("{}: adjusting the request after: {e}", self.model);
+                    *self.dialect.lock().unwrap_or_else(|e| e.into_inner()) = dialect;
+                }
+                other => break other?,
+            }
+        };
 
         // llama-server reports how much of the prompt it had to process. A
         // prompt_n near the full system prompt means the cache missed.
@@ -251,5 +313,33 @@ impl Llm for OpenAiCompatCleaner {
 
     fn complete(&self, system: &str, user: &str, max_tokens: u32) -> Result<String, CleanupError> {
         self.chat(system, user, max_tokens, COMPLETION_TIMEOUT)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dialect_follows_what_openai_rejects() {
+        // The messages are OpenAI's, word for word.
+        let mut d = Dialect { completion_tokens: false, temperature: true, no_reasoning: false };
+        assert!(d.adapt("HTTP 400 Bad Request: Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."));
+        assert!(d.completion_tokens);
+
+        let mut d = Dialect::for_url(OpenAiCompatCleaner::OPENAI);
+        assert_eq!(d, Dialect { completion_tokens: true, temperature: true, no_reasoning: true });
+        assert!(d.adapt("HTTP 400 Bad Request: Unsupported value: 'temperature' does not support 0 with this model. Only the default (1) value is supported."));
+        assert!(d.adapt("HTTP 400 Bad Request: Unrecognized request argument supplied: reasoning_effort"));
+        assert_eq!(d, Dialect { completion_tokens: true, temperature: false, no_reasoning: false });
+        // Nothing left to give up, and unrelated errors don't loop.
+        assert!(!d.adapt("HTTP 400 Bad Request: Unsupported value: 'temperature' does not support 0"));
+        assert!(!d.adapt("HTTP 400 Bad Request: model not found"));
+    }
+
+    #[test]
+    fn other_servers_keep_the_older_fields() {
+        let d = Dialect::for_url(OpenAiCompatCleaner::GROQ);
+        assert_eq!(d, Dialect { completion_tokens: false, temperature: true, no_reasoning: false });
     }
 }

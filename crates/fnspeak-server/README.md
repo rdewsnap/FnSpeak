@@ -47,6 +47,7 @@ docker compose -f deploy/docker-compose.yml logs -f server
 | `FNSPEAK_LLM_BASE_URL` | `https://api.anthropic.com` | Required for `openai`, e.g. `https://api.groq.com/openai/v1` |
 | `FNSPEAK_LLM_MODEL` | `claude-haiku-5-5` | Cleanup model |
 | `FNSPEAK_LLM_SUMMARY_MODEL` | same as above | Summary model |
+| `FNSPEAK_LLM_REASONING_EFFORT` | unset | `openai` only: sent as `reasoning_effort` on cleanup, e.g. `none` for gpt-6-luna. Values differ per model |
 | `FNSPEAK_LOG_FORMAT` | text | `json` for structured logs; levels via `RUST_LOG` |
 
 ## API

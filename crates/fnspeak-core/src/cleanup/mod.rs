@@ -125,6 +125,13 @@ pub fn guardrail(input: &str, output: &str, vocabulary: &[String]) -> Result<(),
         .iter()
         .filter(|w| !known.contains(*w) && !w.chars().all(|c| c.is_ascii_digit()) && !joined_input.contains(w.as_str()))
         .collect();
+    // Nothing in the output came from the speaker: a placeholder such as
+    // "(Nothing to output.)" for a dictation that was only filler.
+    let glue: HashSet<&str> = GLUE_WORDS.iter().copied().collect();
+    let substance = output_words.iter().filter(|w| !glue.contains(w.as_str())).count();
+    if !novel.is_empty() && novel.len() == substance {
+        return Err(CleanupError::Rejected("output shares no words with the dictation".into()));
+    }
     let allowed = 2.max(output_words.len() / 10);
     if novel.len() > allowed {
         let sample: Vec<&str> = novel.iter().take(5).map(|s| s.as_str()).collect();
@@ -198,6 +205,13 @@ mod tests {
     fn guardrail_rejects_answers() {
         let input = "what's the capital of France";
         assert!(guardrail(input, "The capital of France is Paris, a city known for the Eiffel Tower.", &[]).is_err());
+    }
+
+    #[test]
+    fn guardrail_rejects_placeholders_for_nothing() {
+        // What hosted models write when a dictation was only filler.
+        assert!(guardrail("um uh", "(Nothing to output.)", &[]).is_err());
+        assert!(guardrail("um uh", "(No output)", &[]).is_err());
     }
 
     #[test]
