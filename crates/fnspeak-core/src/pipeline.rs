@@ -10,6 +10,7 @@ use crate::commands::split_trailing;
 use crate::context::DictationContext;
 use crate::filter::filter;
 use crate::history::History;
+use crate::snippets::{self, SnippetStore};
 use crate::stt::{is_silent, sanitize, SttEngine, SttError, SttHints, SAMPLE_RATE};
 use crate::vocab::{apply_corrections, apply_suggestions, VocabIndex, AUTO_APPLY_SCORE};
 use serde::{Deserialize, Serialize};
@@ -71,6 +72,9 @@ pub struct DictationResult {
     pub cleaner: Option<String>,
     /// Why the cleanup model's output wasn't used, if it wasn't.
     pub fallback_reason: Option<String>,
+    /// How many snippets were expanded in `insert`.
+    #[serde(default)]
+    pub expanded_snippets: u32,
     pub timings: Timings,
 }
 
@@ -79,6 +83,9 @@ pub struct Pipeline {
     cleaner: Option<Box<dyn Cleaner>>,
     pub vocab: VocabIndex,
     pub history: Option<History>,
+    /// Trigger phrases that expand to saved text. `None` when the store
+    /// couldn't be opened; dictation works without it.
+    pub snippets: Option<SnippetStore>,
     pub mode: CleanupMode,
     /// Treat "send it" / "send that" at the end as a request to press Return.
     pub send_command: bool,
@@ -86,7 +93,7 @@ pub struct Pipeline {
 
 impl Pipeline {
     pub fn new(stt: Box<dyn SttEngine>, vocab: VocabIndex, mode: CleanupMode) -> Self {
-        Pipeline { stt, cleaner: None, vocab, history: None, mode, send_command: false }
+        Pipeline { stt, cleaner: None, vocab, history: None, snippets: None, mode, send_command: false }
     }
 
     pub fn with_cleaner(mut self, cleaner: Box<dyn Cleaner>) -> Self {
@@ -188,6 +195,7 @@ impl Pipeline {
             mode: self.mode,
             cleaner: None,
             fallback_reason: None,
+            expanded_snippets: 0,
             timings: Timings::default(),
         };
         if raw.trim().is_empty() {
@@ -214,6 +222,10 @@ impl Pipeline {
         let corrections = self.vocab.corrections()?;
         result.filtered = apply_corrections(&apply_suggestions(&filtered, &suggestions, AUTO_APPLY_SCORE), &corrections);
         result.text = result.filtered.clone();
+        // Snippet triggers the speaker said. The model must leave them
+        // alone; they're swapped for their text at the very end.
+        let active = self.snippets.as_ref().and_then(|s| s.active().ok()).unwrap_or_default();
+        let said = snippets::find(&result.filtered, &active);
 
         let wants_model = matches!(self.mode, CleanupMode::Local | CleanupMode::Cloud);
         match self.cleaner.as_mut() {
@@ -226,14 +238,26 @@ impl Pipeline {
                         vocabulary.push(c.corrected.clone());
                     }
                 }
+                for m in &said {
+                    let phrase = result.filtered[m.start..m.end].to_string();
+                    if !vocabulary.contains(&phrase) {
+                        vocabulary.push(phrase);
+                    }
+                }
                 let req = CleanupRequest { transcript: &filtered, context: ctx, vocabulary: &vocabulary, suggestions: &suggestions };
                 let cleaned = cleaner.clean(&req).and_then(|out| guardrail(&filtered, &out, &vocabulary).map(|_| out));
                 match cleaned {
                     Ok(text) => {
                         // Again on the model's output: it works from the
                         // unfixed transcript and may keep what was misheard.
-                        result.text = apply_corrections(&trim_expanded_terms(&filtered, &text, &vocabulary), &corrections);
-                        result.cleaner = Some(cleaner.name());
+                        let text = apply_corrections(&trim_expanded_terms(&filtered, &text, &vocabulary), &corrections);
+                        if snippets::find(&text, &active).len() < said.len() {
+                            // The filtered text still has every trigger.
+                            result.fallback_reason = Some("cleanup changed a snippet trigger".into());
+                        } else {
+                            result.text = text;
+                            result.cleaner = Some(cleaner.name());
+                        }
                     }
                     Err(e) => result.fallback_reason = Some(e.to_string()),
                 }
@@ -243,7 +267,11 @@ impl Pipeline {
         }
 
         result.timings.cleanup_ms = started.elapsed().as_millis() as u64;
-        result.insert = fit_to_cursor(&result.text, ctx) + &trailing.breaks;
+        let (expanded, ranges) = snippets::expand(&result.text, &active);
+        result.expanded_snippets = ranges.len() as u32;
+        // Snippet text is inserted as saved, capital letter included.
+        let starts_with_snippet = ranges.first().is_some_and(|r| r.start == 0);
+        result.insert = fit(&expanded, ctx, !starts_with_snippet) + &trailing.breaks;
         Ok(result)
     }
 
@@ -380,6 +408,11 @@ const LOWERCASE_MID_SENTENCE: &[&str] = &[
 /// Adjust cleaned text to where it's being inserted: add a separating space
 /// after existing text, and don't capitalize a continuation mid-sentence.
 pub fn fit_to_cursor(text: &str, ctx: &DictationContext) -> String {
+    fit(text, ctx, true)
+}
+
+/// `may_lowercase` is false when the text starts with a snippet.
+fn fit(text: &str, ctx: &DictationContext, may_lowercase: bool) -> String {
     let before = ctx.text_before.as_str();
     let Some(last) = before.chars().next_back() else {
         return text.to_string();
@@ -392,7 +425,7 @@ pub fn fit_to_cursor(text: &str, ctx: &DictationContext) -> String {
 
     let mid_sentence = before.trim_end().chars().next_back().is_some_and(|c| !matches!(c, '.' | '!' | '?' | ':' | '\n'));
     let first_word: String = text.chars().take_while(|c| c.is_alphabetic()).collect();
-    if mid_sentence && LOWERCASE_MID_SENTENCE.contains(&first_word.to_lowercase().as_str()) && !text.contains('\n') {
+    if may_lowercase && mid_sentence && LOWERCASE_MID_SENTENCE.contains(&first_word.to_lowercase().as_str()) && !text.contains('\n') {
         let mut chars = text.chars();
         if let Some(c) = chars.next() {
             out.extend(c.to_lowercase());
@@ -434,6 +467,13 @@ mod tests {
 
     fn speech() -> Vec<f32> {
         (0..16_000).map(|i| (i as f32 * 0.05).sin() * 0.2).collect()
+    }
+
+    fn with_snippet(mut p: Pipeline, trigger: &str, text: &str) -> Pipeline {
+        let mut store = crate::snippets::SnippetStore::in_memory().unwrap();
+        store.add(trigger, text).unwrap();
+        p.snippets = Some(store);
+        p
     }
 
     #[test]
@@ -643,5 +683,69 @@ mod tests {
         assert_eq!(fit_to_cursor("We should ship.", &ctx("Done. ")), "We should ship.");
         assert_eq!(fit_to_cursor("We should ship", &ctx("I think ")), "we should ship");
         assert_eq!(fit_to_cursor("Priya agreed", &ctx("and then ")), "Priya agreed");
+    }
+
+    #[test]
+    fn expands_a_snippet_in_the_insert_only() {
+        let p = pipeline("Grab a time on my calendar link, thanks.", CleanupMode::FilterOnly);
+        let mut p = with_snippet(p, "my calendar link", "https://cal.com/ryan");
+        let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
+        assert_eq!(r.insert, "Grab a time on https://cal.com/ryan, thanks.");
+        assert_eq!(r.text, "Grab a time on my calendar link, thanks.");
+        assert_eq!(r.expanded_snippets, 1);
+    }
+
+    #[test]
+    fn no_snippets_means_no_change() {
+        let mut p = pipeline("Grab a time on my calendar link, thanks.", CleanupMode::FilterOnly);
+        let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
+        assert_eq!((r.insert.as_str(), r.expanded_snippets), ("Grab a time on my calendar link, thanks.", 0));
+    }
+
+    #[test]
+    fn a_model_that_keeps_the_trigger_is_used() {
+        let p = pipeline("So um grab a time on my calendar link, thanks.", CleanupMode::Cloud)
+            .with_cleaner(Box::new(Echo("Grab a time on my calendar link. Thanks.")));
+        let mut p = with_snippet(p, "my calendar link", "https://cal.com/ryan");
+        let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
+        assert_eq!(r.cleaner.as_deref(), Some("echo"));
+        assert_eq!(r.insert, "Grab a time on https://cal.com/ryan. Thanks.");
+    }
+
+    #[test]
+    fn a_model_that_rewords_the_trigger_is_dropped() {
+        let p = pipeline("Grab a time on my calendar link, thanks.", CleanupMode::Cloud)
+            .with_cleaner(Box::new(Echo("Grab a time on my calendar. Thanks.")));
+        let mut p = with_snippet(p, "my calendar link", "https://cal.com/ryan");
+        let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
+        assert_eq!(r.cleaner, None);
+        assert_eq!(r.fallback_reason.as_deref(), Some("cleanup changed a snippet trigger"));
+        assert_eq!(r.insert, "Grab a time on https://cal.com/ryan, thanks.");
+    }
+
+    #[test]
+    fn raw_mode_leaves_triggers_alone() {
+        let p = pipeline("grab a time on my calendar link", CleanupMode::Raw);
+        let mut p = with_snippet(p, "my calendar link", "https://cal.com/ryan");
+        let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
+        assert_eq!((r.insert.as_str(), r.expanded_snippets), ("grab a time on my calendar link", 0));
+    }
+
+    #[test]
+    fn snippet_text_at_the_start_keeps_its_capital() {
+        let p = pipeline("Team intro line.", CleanupMode::FilterOnly);
+        let mut p = with_snippet(p, "team intro line", "The FnSpeak team builds dictation");
+        let ctx = DictationContext { text_before: "I think ".into(), ..Default::default() };
+        let r = p.dictate(&speech(), &ctx).unwrap();
+        // "The" is a word fit_to_cursor would lowercase mid-sentence.
+        assert_eq!(r.insert, "The FnSpeak team builds dictation.");
+    }
+
+    #[test]
+    fn spoken_commands_still_work_after_a_snippet() {
+        let p = pipeline("Here is my calendar link. New line.", CleanupMode::FilterOnly);
+        let mut p = with_snippet(p, "my calendar link", "https://cal.com/ryan");
+        let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
+        assert_eq!(r.insert, "Here is https://cal.com/ryan.\n");
     }
 }
