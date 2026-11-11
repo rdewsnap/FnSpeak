@@ -38,6 +38,9 @@ struct Args {
     /// Whisper beam size; 1 is greedy decoding. Defaults to the app's setting.
     #[arg(long)]
     beam: Option<i32>,
+    /// Turn Whisper's flash attention off, to compare against it.
+    #[arg(long)]
+    no_flash_attn: bool,
     /// Parakeet sherpa-onnx model folder (needs the `parakeet` feature).
     #[arg(long)]
     parakeet: Option<PathBuf>,
@@ -338,6 +341,7 @@ fn speech_engines(args: &Args) -> Result<Vec<Box<dyn SttEngine>>> {
             if let Some(beam) = args.beam {
                 config.beam_size = beam;
             }
+            config.flash_attn = !args.no_flash_attn;
             config
         })?));
         #[cfg(not(feature = "whisper"))]

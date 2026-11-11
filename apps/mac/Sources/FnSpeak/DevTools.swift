@@ -126,6 +126,10 @@ enum DevTools {
             let ms = Int(Date().timeIntervalSince(started) * 1000)
             switch result {
             case .success(let d):
+                // Leave no trace of the test in the user's history.
+                engine.history(limit: 1) { entries in
+                    if let last = entries.first, last.text == d.text, last.appId == context.appId { engine.deleteHistoryEntry(last.id) }
+                }
                 finish("ok in \(ms) ms (stt \(d.sttMs) ms, cleanup \(d.cleanupMs) ms, \(d.cleanerLabel))\nraw: \(d.raw)\ntext: \(d.text)\nwarning: \(engine.cleanupWarning ?? "none")\n")
             case .failure(let error):
                 finish("failed in \(ms) ms: \(error.localizedDescription)\n")

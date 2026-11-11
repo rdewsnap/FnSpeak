@@ -21,6 +21,8 @@ pub struct WhisperConfig {
     /// cost about 60 ms per dictation; set this above 1 to turn it back on.
     pub beam_size: i32,
     pub use_gpu: bool,
+    /// Flash attention on the GPU. Same output, less time in the encoder.
+    pub flash_attn: bool,
 }
 
 impl WhisperConfig {
@@ -30,6 +32,7 @@ impl WhisperConfig {
             threads: std::thread::available_parallelism().map(|n| n.get().min(8) as i32).unwrap_or(4),
             beam_size: 1,
             use_gpu: true,
+            flash_attn: true,
         }
     }
 }
@@ -45,6 +48,7 @@ impl WhisperEngine {
     pub fn load(config: WhisperConfig) -> Result<Self, SttError> {
         let mut params = WhisperContextParameters::default();
         params.use_gpu(config.use_gpu);
+        params.flash_attn(config.use_gpu && config.flash_attn);
         let ctx = WhisperContext::new_with_params(&config.model_path, params)
             .map_err(|e| SttError::Load(format!("{}: {e}", config.model_path.display())))?;
         let state = ctx.create_state().map_err(|e| SttError::Load(e.to_string()))?;
