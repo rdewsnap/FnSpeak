@@ -430,4 +430,10 @@ extension Preferences {
         get { defaults.object(forKey: "syncGlossary") as? Bool ?? true }
         set { objectWillChange.send(); defaults.set(newValue, forKey: "syncGlossary") }
     }
+
+    /// Pull team snippets while signed in.
+    var syncTeamSnippets: Bool {
+        get { defaults.object(forKey: "syncTeamSnippets") as? Bool ?? true }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "syncTeamSnippets") }
+    }
 }

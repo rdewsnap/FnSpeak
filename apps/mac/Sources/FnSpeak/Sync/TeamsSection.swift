@@ -39,6 +39,8 @@ struct TeamsSection: View {
             }
             Toggle("Add my teams' glossaries to Vocabulary", isOn: $prefs.syncGlossary)
                 .onChange(of: prefs.syncGlossary) { SyncEngine.shared.requestSync() }
+            Toggle("Use my teams' snippets", isOn: $prefs.syncTeamSnippets)
+                .onChange(of: prefs.syncTeamSnippets) { SyncEngine.shared.requestSync() }
             Text("Names and jargon your teammates add are spelled the team's way in your dictations. Add one of your own terms from its menu in Vocabulary.")
                 .font(.callout).foregroundStyle(.secondary)
         }
