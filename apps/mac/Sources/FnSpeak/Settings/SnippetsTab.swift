@@ -116,11 +116,16 @@ struct SnippetEditor: View {
     let saved: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    /// The trigger problem found as you type; blocks Save while it stands.
     @State private var problem: String?
+    /// What the last save attempt answered with; cleared by the next edit.
+    @State private var saveError: String?
+    @State private var saving = false
 
     private var isTeam: Bool { draft.snippet?.team ?? false }
     private var canSave: Bool {
         problem == nil
+            && !saving
             && !draft.trigger.trimmingCharacters(in: .whitespaces).isEmpty
             && !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -129,9 +134,9 @@ struct SnippetEditor: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(draft.snippet == nil ? "New Snippet" : "Edit Snippet").font(.headline)
             TextField("Trigger", text: $draft.trigger, prompt: Text("my calendar link"))
-                .onChange(of: draft.trigger) { check() }
-            if let problem {
-                Text(problem).font(.callout).foregroundStyle(.red)
+                .onChange(of: draft.trigger) { saveError = nil; check() }
+            if let message = problem ?? saveError {
+                Text(message).font(.callout).foregroundStyle(.red)
             } else {
                 Text("Two or more words you wouldn't say by accident.").font(.callout).foregroundStyle(.secondary)
             }
@@ -139,6 +144,7 @@ struct SnippetEditor: View {
                 .font(.body)
                 .frame(minHeight: 140)
                 .border(.separator)
+                .onChange(of: draft.text) { saveError = nil }
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -163,17 +169,22 @@ struct SnippetEditor: View {
     }
 
     private func save() {
-        if let snippet = draft.snippet, snippet.team {
-            AccountController.shared.updateTeamSnippet(snippet, trigger: draft.trigger, text: draft.text)
-            return dismiss()
-        }
-        engine.saveSnippet(id: draft.snippet?.id, trigger: draft.trigger, text: draft.text) { message in
+        guard !saving else { return }
+        saving = true
+        saveError = nil
+        let finish: (String?) -> Void = { message in
+            saving = false
             if let message {
-                problem = message
+                saveError = message
             } else {
                 saved()
                 dismiss()
             }
+        }
+        if let snippet = draft.snippet, snippet.team {
+            AccountController.shared.updateTeamSnippet(snippet, trigger: draft.trigger, text: draft.text, completion: finish)
+        } else {
+            engine.saveSnippet(id: draft.snippet?.id, trigger: draft.trigger, text: draft.text, completion: finish)
         }
     }
 }
