@@ -1,8 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <!-- App icon: the keycap inside Apple's icon grid (about 10% margin, transparent corners). -->
-  <g transform="translate(100 100) scale(12.875)">
+  <!-- App icon: the keycap filling Apple's 824 px icon grid, on a transparent background. -->
+  <g transform="translate(41.14 41.14) scale(14.714)">
     <rect x="5" y="10" width="54" height="50" rx="12" fill="#0e0d0c"/>
     <rect x="5" y="4" width="54" height="50" rx="12" fill="#1f1d1a"/>
+    <!-- a faint edge so the key still reads on a dark Dock or sidebar -->
+    <rect x="5.4" y="4.4" width="53.2" height="49.2" rx="11.6" fill="none" stroke="#ffffff" stroke-opacity="0.16" stroke-width="0.8"/>
     <g fill="none" stroke="#f3f3f1" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round">
       <path d="M18 46 V31 q0 -5 5 -5"/>
       <path d="M14 37 H22"/>
