@@ -48,7 +48,7 @@ jobs:
             echo "notarize=true" >> "$GITHUB_OUTPUT"
           else
             echo "notarize=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Apple signing secrets are not all set; building an ad-hoc-signed, un-notarized app."
+            echo "::warning::Apple signing secrets are not all set; building an ad-hoc-signed, un-notarized app and keeping the release as a draft."
           fi
           case "$version" in
             *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
@@ -133,9 +133,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.meta.outputs.version }}
           PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+          NOTARIZED: ${{ steps.meta.outputs.notarize }}
         run: |
+          # A release published by hand (scripts/publish-local.sh) wins.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::notice::A release for $TAG already exists; leaving it alone."
+            exit 0
+          fi
           flags=()
           if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          # Without the signing secrets the build isn't notarized. Keep that
+          # as a draft so it never becomes the public download by accident.
+          if [ "$NOTARIZED" != "true" ]; then flags+=(--draft); fi
           gh release create "$TAG" \
             "dist/FnSpeak-$VERSION.dmg" "dist/FnSpeak-$VERSION.zip" dist/SHA256SUMS \
             --title "FnSpeak $VERSION" \
