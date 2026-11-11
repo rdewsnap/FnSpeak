@@ -161,6 +161,7 @@ final class SyncEngine: ObservableObject {
     private func sync() async {
         guard account.isSignedIn, let client = account.client, let engine, engine.isReady, let core = engine.core else { return }
         syncing = true
+        var snippetError: String?
         do {
             if prefs.syncGlossary {
                 try await pullGlossary(client, core)
@@ -169,7 +170,15 @@ final class SyncEngine: ObservableObject {
                 appliedGlossary = []
             }
             if prefs.syncTeamSnippets {
-                try await pullSnippets(client, core)
+                do {
+                    try await pullSnippets(client, core)
+                } catch ServerError.signedOut {
+                    throw ServerError.signedOut
+                } catch {
+                    // Notes and meetings still sync; the team snippets already in the core stay.
+                    snippetError = error.localizedDescription
+                    Log.error("Sync: team snippets: \(error.localizedDescription)")
+                }
             } else if appliedSnippets != [] {
                 try await onWorker { _ = try core.replaceTeamSnippets(snippets: []) }
                 appliedSnippets = []
@@ -184,7 +193,7 @@ final class SyncEngine: ObservableObject {
                     Log.debug("Sync: waiting for the meeting to finish")
                 }
             }
-            lastError = nil
+            lastError = snippetError
         } catch ServerError.signedOut {
             account.tokenRejected()
         } catch {
@@ -211,6 +220,8 @@ final class SyncEngine: ObservableObject {
     /// already in the core stay as they were.
     private func pullSnippets(_ client: ServerClient, _ core: FnSpeakEngine) async throws {
         let remote = try await client.teamSnippets()
+        // A sign-out during the fetch has already cleared the core; don't put them back.
+        guard account.isSignedIn else { return }
         guard remote != appliedSnippets else { return }
         let input = remote.map {
             TeamSnippetInput(id: $0.id, trigger: $0.trigger, text: $0.text, teamId: $0.teamId,
