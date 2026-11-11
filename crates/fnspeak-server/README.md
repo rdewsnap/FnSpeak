@@ -6,6 +6,7 @@ The optional backend behind FnSpeak Cloud. The app is fully usable without it; t
 - **Sync**: notes and meetings (with transcript segments) pushed and pulled between devices, last writer wins. Items can be shared with a team.
 - **Search** across everything you can see: SQLite FTS5 or Postgres full-text search.
 - **Team glossary**: names and jargon your teammates' apps pull into their vocabulary.
+- **Team snippets**: trigger phrases that expand to saved text in every teammate's dictations.
 - **Hosted cleanup and meeting summaries**, forwarded to Anthropic or any OpenAI-compatible endpoint.
 - **MCP** at `/mcp`, so an AI assistant can search and read your notes, meetings and summaries.
 
@@ -65,6 +66,8 @@ Everything except sign-in and `/healthz` takes `Authorization: Bearer <token>`. 
 | `PATCH/DELETE /v1/teams/{id}/members/{user_id}` | Change role, remove, leave |
 | `GET/POST /v1/teams/{id}/glossary`, `DELETE …/glossary/{id}` | Team glossary |
 | `GET /v1/glossary` | Glossary terms from all your teams |
+| `GET/POST /v1/teams/{id}/snippets`, `PATCH/DELETE …/snippets/{id}` | Team snippets: `{trigger, text}`. Any member adds; admins or whoever added one change or remove it |
+| `GET /v1/snippets` | Snippets from all your teams, each with `can_edit` for you |
 | `GET /v1/notes`, `GET/PUT/DELETE /v1/notes/{id}` | Notes |
 | `GET /v1/meetings`, `GET/PUT/DELETE /v1/meetings/{id}` | Meetings; `PUT` may include `segments` |
 | `GET /v1/sync?since=&limit=` | Changes since a cursor, including deletions |
