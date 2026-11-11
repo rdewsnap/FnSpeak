@@ -29,14 +29,16 @@ A snippet has:
 |---|---|
 | `id` | Local UUID for personal snippets; the server id for team snippets |
 | `trigger` | The phrase as the user typed it, 1 to 60 characters |
-| `trigger_key` | `vocab::normalize(trigger)`; what matching and uniqueness use |
+| `trigger_key` | `vocab::learn::heard_key(trigger)`: lowercase words joined by single spaces. What matching and uniqueness use |
 | `text` | Plain text, may contain line breaks, 1 to 4000 characters |
 | `source` | `personal` or `team` |
 | `team_id`, `team_name` | Set for team snippets only |
+| `can_edit` | Always true for personal; for team snippets, whether this user may edit or remove it |
 | `updated_at` | Milliseconds |
 
-`trigger_key` is unique per source locally. A personal and a team snippet may
-share a key; the personal one wins.
+`trigger_key` is unique among personal snippets. A personal and a team snippet
+may share a key, and so may snippets from two teams; `active()` below says
+which one fires.
 
 ### Trigger rules
 
@@ -52,9 +54,9 @@ The same rules run in the core (for personal snippets) and on the server (for
 team snippets, minus the common-phrase check, which needs the core's word
 list; the app checks it before sharing).
 
-## Core: `fnspeak-core/src/snippets.rs`
+## Core: `fnspeak-core/src/snippets/`
 
-One module with two parts.
+One module with two parts: the store in `mod.rs`, the matcher in `matcher.rs`.
 
 **Store.** `SnippetStore` over SQLite, in `snippets.db` beside
 `vocabulary.db`.
@@ -96,17 +98,20 @@ In `Pipeline::clean`, after `result.filtered` is computed:
    text. If it finds fewer matches than step 1, the model reworded a
    trigger: discard the model text, set `fallback_reason` to
    `"cleanup changed a snippet trigger"`, and keep `result.filtered`.
-4. `result.text = expand(text_from_3, &active)`.
-5. `fit_to_cursor` runs as today, except that when the expanded text begins
-   inside a snippet range it does not change the case of the first letter.
+4. `result.text` is the text from step 3, triggers still in it.
+5. `result.insert` is `expand(result.text, &active)` run through
+   `fit_to_cursor` as today, except that when the expanded text begins with
+   a snippet it does not change the case of the first letter.
 
-`result.filtered` stays unexpanded, so history shows what was said.
+Only `insert` is expanded. `result.text` is what history and the recent
+dictations menu store, so both show what was said.
 `record_usage` and `learn_from_edit` are unchanged; a snippet's text is not
 fed to vocabulary learning (the app passes `learn_from_edit` nothing when the
 insert contained a snippet).
 
-`Pipeline` gains a `snippets: SnippetStore` field, set through
-`with_snippets`. `active()` is read once per dictation.
+`Pipeline` gains a public `snippets: Option<SnippetStore>` field, `None`
+when the store could not be opened. `active()` is read once per dictation;
+if it fails the dictation goes on without expansion.
 
 Raw mode and `transcribe_verbatim` do not call any of this.
 
@@ -114,8 +119,10 @@ Raw mode and `transcribe_verbatim` do not call any of this.
 
 `fnspeak-ffi` exposes, on the engine: `snippets()`, `add_snippet`,
 `update_snippet`, `remove_snippet`, `replace_team_snippets`,
-`validate_snippet_trigger`. `DictationResult` gains `expanded_snippets: u32`
-so the app can skip edit-learning for that insert.
+`validate_snippet_trigger`. `DictationResult` and the FFI `Dictation` gain
+`expanded_snippets: u32` so the app can skip edit-learning for that insert.
+The FFI `Snippet` also carries `shadowed`: a team snippet whose trigger a
+personal one has.
 
 ## Server
 
@@ -125,15 +132,19 @@ New table, in both `db/sqlite.rs` and `db/postgres.rs`:
 CREATE TABLE team_snippets (
   id          TEXT PRIMARY KEY,
   team_id     TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-  trigger     TEXT NOT NULL,
-  trigger_key TEXT NOT NULL,
-  text        TEXT NOT NULL,
+  phrase      TEXT NOT NULL,
+  phrase_key  TEXT NOT NULL,
+  body        TEXT NOT NULL,
   added_by    TEXT REFERENCES users(id) ON DELETE SET NULL,
   created_at  BIGINT NOT NULL,
   updated_at  BIGINT NOT NULL,
-  UNIQUE (team_id, trigger_key)
+  UNIQUE (team_id, phrase_key)
 );
 ```
+
+The columns are `phrase` and `body` because `trigger` is an SQL keyword. The
+JSON fields are still `trigger` and `text`. It ships as migration
+`0006_team_snippets.sql` for both backends.
 
 New module `snippets.rs`, routes mirroring `glossary.rs`:
 
@@ -144,6 +155,8 @@ New module `snippets.rs`, routes mirroring `glossary.rs`:
 | `PATCH /v1/teams/{id}/snippets/{sid}` | admin, owner, or `added_by` | Edit trigger or text |
 | `DELETE /v1/teams/{id}/snippets/{sid}` | admin, owner, or `added_by` | |
 | `GET /v1/snippets` | signed in | Snippets from every team the caller is on, with `team_name` |
+
+Every snippet in a response carries `can_edit`, worked out for the caller.
 
 Length limits and the structural trigger rules (two words, not a command
 phrase) are enforced here and answer 400. Snippet text is not logged.
@@ -168,7 +181,8 @@ Vocabulary and Notes:
 `syncTeamSnippets` (default on), shown in `TeamsSection` under the glossary
 toggle. Signing out or turning the toggle off clears team snippets.
 
-`ServerClient` gains the five calls above.
+`ServerClient` gains the four calls the app uses: list mine, add, edit,
+remove. The per-team list is for other clients.
 
 ## Errors
 
