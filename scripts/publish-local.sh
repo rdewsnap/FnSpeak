@@ -4,6 +4,7 @@
 #
 #   scripts/publish-local.sh                 # build into dist/, nothing uploaded
 #   scripts/publish-local.sh --upload        # also create the GitHub release for the tag
+#   scripts/publish-local.sh --upload-only   # publish what an earlier run left in dist/
 #   scripts/publish-local.sh --no-notarize   # sign only, for checking the package
 #
 # Environment:
@@ -17,12 +18,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 UPLOAD=0
+BUILD=1
 NOTARIZE=1
 for arg in "$@"; do
     case "$arg" in
         --upload) UPLOAD=1 ;;
+        --upload-only) UPLOAD=1; BUILD=0 ;;
         --no-notarize) NOTARIZE=0 ;;
-        -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown option: $arg" >&2; exit 2 ;;
     esac
 done
@@ -54,13 +57,34 @@ if [[ "$UPLOAD" == 1 ]]; then
     [[ -z "$(git status --porcelain --untracked-files=no)" ]] || { echo "working tree has changes" >&2; exit 1; }
 fi
 
-echo "==> FnSpeak $VERSION, signed as $SIGN_IDENTITY"
-SIGN_ID="$SIGN_IDENTITY" scripts/build-mac.sh
-
 DIST="${DIST_DIR:-$ROOT/dist}"
 mkdir -p "$DIST"
 DMG="$DIST/FnSpeak-$VERSION.dmg"
 ZIP="$DIST/FnSpeak-$VERSION.zip"
+
+publish() {
+    local flags=()
+    # A version like 0.3.0-beta.1 is a pre-release, as in the workflow.
+    case "$VERSION" in *-*) flags+=(--prerelease) ;; esac
+    # The workflow keeps what it can't notarize as a draft; this replaces it.
+    if [[ "$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)" == "true" ]]; then
+        gh release delete "$TAG" --yes
+    fi
+    gh release create "$TAG" "$DMG" "$ZIP" "$DIST/SHA256SUMS" --title "FnSpeak $VERSION" --generate-notes --verify-tag ${flags[@]+"${flags[@]}"}
+    echo "==> Published $TAG. Put the dmg's sha256 above into homebrew/fnspeak.rb."
+}
+
+if [[ "$BUILD" == 0 ]]; then
+    for file in "$DMG" "$ZIP" "$DIST/SHA256SUMS"; do
+        [[ -f "$file" ]] || { echo "nothing to upload: $file is missing" >&2; exit 1; }
+    done
+    xcrun stapler validate "$DMG" >/dev/null || { echo "$DMG isn't notarized" >&2; exit 1; }
+    publish
+    exit 0
+fi
+
+echo "==> FnSpeak $VERSION, signed as $SIGN_IDENTITY"
+SIGN_ID="$SIGN_IDENTITY" scripts/build-mac.sh
 
 if [[ "$NOTARIZE" == 1 ]]; then
     scripts/notarize.sh build/FnSpeak.app
@@ -82,8 +106,7 @@ fi
 (cd "$DIST" && shasum -a 256 "FnSpeak-$VERSION.dmg" "FnSpeak-$VERSION.zip" | tee SHA256SUMS)
 
 if [[ "$UPLOAD" == 1 ]]; then
-    gh release create "$TAG" "$DMG" "$ZIP" "$DIST/SHA256SUMS" --title "FnSpeak $VERSION" --generate-notes --verify-tag
-    echo "==> Published $TAG. Put the dmg's sha256 above into homebrew/fnspeak.rb."
+    publish
 else
     echo "==> Built $DMG"
     [[ "$NOTARIZE" == 1 ]] && echo "    Upload it with: scripts/publish-local.sh --upload"
