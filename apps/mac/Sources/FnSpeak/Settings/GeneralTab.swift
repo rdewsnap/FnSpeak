@@ -5,6 +5,7 @@ struct GeneralTab: View {
     @ObservedObject var prefs = Preferences.shared
     @ObservedObject var engine: EngineController
 
+    @ObservedObject private var updates = UpdateChecker.shared
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
     @State private var loginError: String?
 
@@ -69,8 +70,22 @@ struct GeneralTab: View {
             }
 
             Section("Updates") {
-                LabeledContent("Version", value: AppInfo.version)
-                Link("See the latest release on GitHub", destination: AppInfo.releasesURL)
+                LabeledContent("Version", value: "\(AppInfo.version) (\(AppInfo.build))")
+                HStack {
+                    Button("Check for Updates") { updates.check() }
+                        .disabled(updates.state == .checking)
+                    switch updates.state {
+                    case .idle: EmptyView()
+                    case .checking: ProgressView().controlSize(.small)
+                    case .current: Text("You're up to date.").foregroundStyle(.secondary)
+                    case .available(let version, let page):
+                        Text("FnSpeak \(version) is out.")
+                        Link("Get it", destination: page)
+                    case .failed(let message): Text(message).foregroundStyle(.orange).lineLimit(2)
+                    }
+                }
+                Text("FnSpeak only checks when you ask. The check is one request to GitHub.")
+                    .font(.callout).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
