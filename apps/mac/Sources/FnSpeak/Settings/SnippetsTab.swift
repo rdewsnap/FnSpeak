@@ -8,6 +8,8 @@ struct SnippetsTab: View {
     @ObservedObject private var sync = SyncEngine.shared
     @State private var snippets: [Snippet] = []
     @State private var draft: SnippetDraft?
+    /// The team snippet awaiting confirmation to be removed.
+    @State private var removing: Snippet?
 
     private var personal: [Snippet] { snippets.filter { !$0.team } }
     private var fromTeams: [Snippet] { snippets.filter(\.team) }
@@ -48,7 +50,7 @@ struct SnippetsTab: View {
                                 if snippet.canEdit {
                                     Button("Edit…") { draft = SnippetDraft(snippet) }
                                     Button("Remove from \(snippet.teamName ?? "team")", role: .destructive) {
-                                        account.removeTeamSnippet(snippet)
+                                        removing = snippet
                                     }
                                 } else {
                                     Text("Only its author or a team admin can change this")
@@ -66,6 +68,17 @@ struct SnippetsTab: View {
         .padding()
         .onAppear(perform: reload)
         .onChange(of: sync.snippetsRevision) { reload() }
+        .confirmationDialog(
+            "Remove “\(removing?.trigger ?? "")” from \(removing?.teamName ?? "the team")?",
+            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+            titleVisibility: .visible,
+            presenting: removing
+        ) { snippet in
+            Button("Remove", role: .destructive) { account.removeTeamSnippet(snippet) }
+            Button("Cancel", role: .cancel) {}
+        } message: { snippet in
+            Text("This removes it for everyone on \(snippet.teamName ?? "the team"), and it can't be undone.")
+        }
         .sheet(item: $draft) { draft in
             SnippetEditor(draft: draft, engine: engine, saved: reload)
         }

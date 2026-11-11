@@ -41,7 +41,7 @@ struct TeamsSection: View {
                 .onChange(of: prefs.syncGlossary) { SyncEngine.shared.requestSync() }
             Toggle("Use my teams' snippets", isOn: $prefs.syncTeamSnippets)
                 .onChange(of: prefs.syncTeamSnippets) { SyncEngine.shared.requestSync() }
-            Text("Names and jargon your teammates add are spelled the team's way in your dictations. Add one of your own terms from its menu in Vocabulary.")
+            Text("Names and jargon your teammates add are spelled the team's way in your dictations. Add one of your own terms from its menu in Vocabulary. Snippets your teammates share expand in your dictations too, and are managed in Snippets.")
                 .font(.callout).foregroundStyle(.secondary)
         }
     }
