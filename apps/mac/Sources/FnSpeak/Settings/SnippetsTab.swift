@@ -155,13 +155,15 @@ struct SnippetEditor: View {
         .frame(width: 420)
     }
 
-    /// Personal triggers are checked as you type. A team snippet's trigger
-    /// is checked by the server on save, since only it knows the team's
-    /// others; the server doesn't apply the everyday-phrase rule, so an edit
-    /// to a team trigger can get past that one.
+    /// Triggers are checked as you type. A personal trigger is also checked
+    /// against the user's other snippets. A team trigger gets the rules that
+    /// need no store (two words, not a command, not an everyday phrase), since
+    /// every teammate's app drops a team snippet that breaks them; the server
+    /// checks the rest on save, since only it knows the team's others.
     private func check() {
         let trigger = draft.trigger
-        guard !isTeam, !trigger.trimmingCharacters(in: .whitespaces).isEmpty else { return problem = nil }
+        guard !trigger.trimmingCharacters(in: .whitespaces).isEmpty else { return problem = nil }
+        if isTeam { return problem = checkSnippetTrigger(trigger: trigger) }
         engine.snippetTriggerProblem(trigger, ignoring: draft.snippet?.id) { message in
             // Ignore the answer to an older keystroke.
             if trigger == draft.trigger { problem = message }

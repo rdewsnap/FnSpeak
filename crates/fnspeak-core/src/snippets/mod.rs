@@ -204,14 +204,17 @@ impl SnippetStore {
         Ok(self.conn.execute("DELETE FROM snippets WHERE id = ?1 AND source = 'personal'", [id])? > 0)
     }
 
-    /// Replace every team snippet with what the server has now.
+    /// Replace every team snippet with what the server has now. The server
+    /// doesn't apply the trigger rules, so rows that break them (an everyday
+    /// phrase, one word, blank or oversized text) are skipped rather than
+    /// pasted into this user's dictation. Returns how many rows were stored.
     pub fn replace_team(&mut self, snippets: Vec<TeamSnippet>) -> Result<usize> {
         let tx = self.conn.transaction()?;
         tx.execute("DELETE FROM snippets WHERE source = 'team'", [])?;
         let mut added = 0;
         for s in snippets {
-            let key = trigger_key(&s.trigger);
-            if key.is_empty() || s.text.is_empty() {
+            let Ok(key) = check_trigger(&s.trigger) else { continue };
+            if check_text(&s.text).is_err() {
                 continue;
             }
             added += tx.execute(
@@ -308,7 +311,7 @@ mod tests {
     fn team_snippets_are_replaced_wholesale_and_cannot_be_edited_locally() {
         let mut store = SnippetStore::in_memory().unwrap();
         let mine = store.add("office address", "1 Main St").unwrap();
-        assert_eq!(store.replace_team(vec![team("t1", "support hours", "9 to 5", "a")]).unwrap(), 1);
+        assert_eq!(store.replace_team(vec![team("t1", "onboarding checklist", "9 to 5", "a")]).unwrap(), 1);
         assert_eq!(store.replace_team(vec![team("t2", "status page", "status.example.com", "a")]).unwrap(), 1);
 
         let all = store.list().unwrap();
@@ -321,6 +324,23 @@ mod tests {
 
         assert_eq!(store.replace_team(vec![]).unwrap(), 0);
         assert_eq!(store.list().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn replace_team_skips_rows_that_break_the_trigger_rules() {
+        let mut store = SnippetStore::in_memory().unwrap();
+        let stored = store
+            .replace_team(vec![
+                team("t1", "sign off", "Best regards", "a"),
+                team("t2", "support", "one word", "a"),
+                team("t3", "office address", "   ", "a"),
+                team("t4", "office hours", &"x".repeat(4001), "a"),
+                team("t5", "status page", "status.example.com", "a"),
+            ])
+            .unwrap();
+        assert_eq!(stored, 1);
+        let all = store.list().unwrap();
+        assert_eq!(all.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), vec!["t5"]);
     }
 
     #[test]

@@ -284,6 +284,13 @@ pub fn scan_projects(root: String) -> Result<Vec<String>, FnSpeakError> {
     vocab::projects::index_projects(Path::new(&root)).map_err(storage_err)
 }
 
+/// Why `trigger` breaks the snippet trigger rules that need no store (length,
+/// two words, not a command, not an everyday phrase), or nil if it passes.
+#[uniffi::export]
+pub fn check_snippet_trigger(trigger: String) -> Option<String> {
+    fnspeak_core::snippets::check_trigger(&trigger).err().map(|e| e.to_string())
+}
+
 #[derive(uniffi::Object)]
 pub struct FnSpeakEngine {
     // Shared with the meeting worker, which transcribes through it.
