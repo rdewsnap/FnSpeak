@@ -16,9 +16,21 @@ struct SnippetsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Say a snippet's trigger while dictating and its text is typed in its place.")
-                    .font(.callout).foregroundStyle(.secondary)
+            if snippets.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "text.insert").font(.system(size: 26)).foregroundStyle(.tertiary)
+                    Text("No snippets yet").fontWeight(.medium)
+                    Text("Save a phrase like “my calendar link” with the text it stands for.\nSay the phrase in a dictation and the text is typed.")
+                        .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    Button("New Snippet") { draft = SnippetDraft() }
+                        .keyboardShortcut(.defaultAction)
+                        .padding(.top, 6)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.bottom, 60)
+            } else {
+            HStack {
+                Text("\(snippets.count) \(snippets.count == 1 ? "snippet" : "snippets")").font(.callout).foregroundStyle(.secondary)
                 Spacer()
                 Button("New Snippet") { draft = SnippetDraft() }
             }
@@ -26,7 +38,7 @@ struct SnippetsTab: View {
             List {
                 Section("Yours") {
                     if personal.isEmpty {
-                        Text("No snippets yet. Try a trigger like “my calendar link”.").foregroundStyle(.secondary)
+                        Text("None of your own yet.").foregroundStyle(.secondary)
                     }
                     ForEach(personal, id: \.id) { snippet in
                         row(snippet) {
@@ -60,12 +72,19 @@ struct SnippetsTab: View {
                     }
                 }
             }
+            .listStyle(.inset)
+            .scrollContentBackground(.hidden)
+            .background(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).fill(Color(nsColor: .controlBackgroundColor)))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+            }
 
             if let message = account.error ?? account.notice {
                 Text(message).font(.callout).foregroundStyle(account.error == nil ? Color.secondary : Color.orange)
             }
         }
-        .padding()
+        .padding(.horizontal, Theme.gutter)
+        .padding(.bottom, 16)
         .onAppear(perform: reload)
         .onChange(of: sync.snippetsRevision) { reload() }
         .confirmationDialog(

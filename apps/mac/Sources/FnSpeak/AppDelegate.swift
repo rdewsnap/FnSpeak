@@ -14,7 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var meetings = MeetingController(engine: engine, overlay: overlay)
 
     private var statusItem: NSStatusItem!
-    private var settingsController: SettingsWindowController?
+    private var mainWindow: MainWindowController?
     private var onboardingWindow: NSWindow?
     private var prefsObserver: AnyCancellable?
 
@@ -33,6 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.info("FnSpeak \(AppInfo.version) starting on macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
         MainMenu.install(target: self, settings: #selector(openSettings), about: #selector(openAbout))
+        if let directory = DevTools.snapshotDirectory {
+            return DevTools.run(engine: engine, indexer: indexer, into: directory)
+        }
         setUpStatusItem()
         applyPresentation()
         prefsObserver = prefs.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] in self?.applyPresentation() }
@@ -57,9 +60,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if prefs.onboarded {
             begin()
+            // Opened by hand, show the window; started at login, stay out of the way.
+            if !Self.launchedAtLogin { showSettings(tab: .home) }
         } else {
             showOnboarding()
         }
+    }
+
+    /// Whether macOS started the app as a login item rather than the user opening it.
+    private static var launchedAtLogin: Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent, event.eventID == kAEOpenApplication else { return false }
+        return event.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
     }
 
     private func begin() {
@@ -302,8 +313,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if meetings.isRecording { statusItem.button?.image = MeetingStatusBadge.badge(statusItem.button?.image) }
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        engine.shutdown()
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { showSettings() }
+        if !flag { showSettings(tab: .home) }
         return true
     }
 
@@ -316,7 +331,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettings() {
-        showSettings()
+        showSettings(tab: .general)
+    }
+
+    @objc private func openHome() {
+        showSettings(tab: .home)
+    }
+
+    @objc private func openHistory() {
+        showSettings(tab: .history)
     }
 
     @objc func showMeetings(_ sender: Any?) {
@@ -332,10 +355,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showSettings(tab: SettingsTab? = nil) {
-        if settingsController == nil {
-            settingsController = SettingsWindowController(engine: engine, indexer: indexer)
+        if mainWindow == nil {
+            let actions = MainWindowActions(
+                openNotes: { [weak self] in self?.notes.openNotes() },
+                newNote: { [weak self] in self?.notes.newNote() },
+                openMeetings: { [weak self] in self?.meetings.showList() },
+                startMeeting: { [weak self] in self?.meetings.requestStart() },
+                togglePause: { [weak self] in self?.togglePause() }
+            )
+            mainWindow = MainWindowController(engine: engine, indexer: indexer, actions: actions)
         }
-        settingsController?.show(tab: tab)
+        mainWindow?.show(tab: tab)
     }
 
     private func showOnboarding() {
@@ -347,6 +377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.onboardingWindow?.close()
                 self?.begin()
                 self?.scheduleIndexing()
+                self?.showSettings(tab: .home)
             }
         )
         let window = NSWindow(contentViewController: NSHostingController(rootView: view))
@@ -413,6 +444,10 @@ extension AppDelegate: NSMenuDelegate {
         case .ready: status = prefs.triggerStyle == "toggle" ? "Ready — press \(key) to dictate" : "Ready — hold \(key) to dictate"
         case .failed(let message): status = "Problem: \(message)"
         }
+        let open = NSMenuItem(title: "Open FnSpeak", action: #selector(openHome), keyEquivalent: "")
+        open.target = self
+        menu.addItem(open)
+        menu.addItem(.separator())
         menu.addItem(withTitle: prefs.paused ? "Paused" : status, action: nil, keyEquivalent: "")
         if let warning = engine.cleanupWarning {
             menu.addItem(withTitle: warning, action: nil, keyEquivalent: "")
@@ -454,7 +489,10 @@ extension AppDelegate: NSMenuDelegate {
                 submenu.addItem(item)
             }
             submenu.addItem(.separator())
-            let clear = NSMenuItem(title: "Clear", action: #selector(clearRecents), keyEquivalent: "")
+            let all = NSMenuItem(title: "Show History…", action: #selector(openHistory), keyEquivalent: "")
+            all.target = self
+            submenu.addItem(all)
+            let clear = NSMenuItem(title: "Clear This List", action: #selector(clearRecents), keyEquivalent: "")
             clear.target = self
             submenu.addItem(clear)
         }

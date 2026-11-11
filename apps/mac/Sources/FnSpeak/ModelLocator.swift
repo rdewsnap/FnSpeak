@@ -25,10 +25,36 @@ enum ModelLocator {
         }
     }
 
-    /// The cleanup model: a FnSpeak fine-tune if present, else any GGUF.
+    /// UserDefaults key for the file name of the cleanup model, chosen in
+    /// Settings → Cleanup. Empty means pick one automatically.
+    static let cleanupModelKey = "cleanupModel"
+
+    /// Every GGUF in the models folder.
+    static var cleanupModelCandidates: [URL] {
+        contents(of: modelsDirectory).filter { $0.pathExtension == "gguf" }
+    }
+
+    /// The cleanup model: the one chosen in settings, else a FnSpeak
+    /// fine-tune if present, else any GGUF.
     static var cleanupModel: URL? {
-        let files = contents(of: modelsDirectory).filter { $0.pathExtension == "gguf" }
-        return files.first { $0.lastPathComponent.lowercased().contains("fnspeak") } ?? files.first
+        let files = cleanupModelCandidates
+        if let name = UserDefaults.standard.string(forKey: cleanupModelKey), !name.isEmpty,
+           let chosen = files.first(where: { $0.lastPathComponent == name }) {
+            return chosen
+        }
+        return files.first { isFineTune($0) } ?? files.first
+    }
+
+    /// What "Automatic" resolves to, for the picker.
+    static var automaticCleanupModelName: String {
+        let files = cleanupModelCandidates
+        return (files.first { isFineTune($0) } ?? files.first)?.lastPathComponent ?? "none found"
+    }
+
+    /// A model trained for cleanup, under the app's current or former name.
+    static func isFineTune(_ url: URL) -> Bool {
+        let name = url.lastPathComponent.lowercased()
+        return name.contains("fnspeak") || name.contains("flowstate")
     }
 
     /// UserDefaults key for the file name of the fast model, chosen in

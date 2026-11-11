@@ -15,7 +15,7 @@ struct VocabularyTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                TextField("Add a name or term", text: $newTerm).onSubmit(addTerm)
+                TextField("Add a name or term", text: $newTerm).textFieldStyle(.roundedBorder).onSubmit(addTerm)
                 Button("Add", action: addTerm).disabled(newTerm.trimmingCharacters(in: .whitespaces).isEmpty)
             }
 
@@ -44,6 +44,11 @@ struct VocabularyTab: View {
                     .contextMenu { TeamGlossaryMenuItems(term: term.text) }
                 }
             }
+            .listStyle(.inset)
+            .scrollContentBackground(.hidden)
+            .background(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).fill(Color(nsColor: .controlBackgroundColor)))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
             .overlay {
                 if visible.isEmpty {
                     Text(terms.isEmpty ? "No terms yet. Add some, import a list, or point FnSpeak at your projects in Context." : "No matches.")
@@ -66,7 +71,8 @@ struct VocabularyTab: View {
             Toggle("Learn from my corrections", isOn: $prefs.learnFromCorrections)
                 .help("When you fix a dictated word, FnSpeak reads back just that text, on this Mac, and remembers the spelling.")
         }
-        .padding()
+        .padding(.horizontal, Theme.gutter)
+        .padding(.bottom, 16)
         .onAppear(perform: reload)
     }
 

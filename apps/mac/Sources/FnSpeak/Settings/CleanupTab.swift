@@ -9,6 +9,7 @@ struct CleanupTab: View {
     @State private var testing = false
     @State private var testResult: CloudConnectionTest.Outcome?
     @State private var keptWords: [String] = []
+    @AppStorage(ModelLocator.cleanupModelKey) private var cleanupModel = ""
     @ObservedObject private var account = AccountController.shared
 
     var body: some View {
@@ -33,7 +34,16 @@ struct CleanupTab: View {
 
             if prefs.mode == "local" {
                 Section("Local model") {
-                    LabeledContent("Model", value: ModelLocator.cleanupModel?.lastPathComponent ?? "None found")
+                    let models = ModelLocator.cleanupModelCandidates
+                    if models.count > 1 {
+                        Picker("Model", selection: $cleanupModel) {
+                            Text("Automatic (\(ModelLocator.automaticCleanupModelName))").tag("")
+                            ForEach(models, id: \.lastPathComponent) { Text($0.lastPathComponent).tag($0.lastPathComponent) }
+                        }
+                        .onChange(of: cleanupModel) { engine.reconfigureCleanup() }
+                    } else {
+                        LabeledContent("Model", value: models.first?.lastPathComponent ?? "None found")
+                    }
                     LabeledContent("llama-server", value: ModelLocator.llamaServer?.path ?? "Not found")
                 }
             }

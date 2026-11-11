@@ -12,6 +12,8 @@ final class EngineController: ObservableObject {
     @Published private(set) var status: Status = .loading
     @Published private(set) var lastDictation: Dictation?
     @Published private(set) var cleanupWarning: String?
+    /// Goes up whenever the dictation history changes, so lists can reload.
+    @Published private(set) var historyRevision = 0
 
     private var engine: FnSpeakEngine?
     private let queue = DispatchQueue(label: "com.fnspeak.engine", qos: .userInitiated)
@@ -54,6 +56,14 @@ final class EngineController: ObservableObject {
                 DispatchQueue.main.async { self.status = .failed(error.localizedDescription) }
             }
         }
+    }
+
+    /// Free the models and stop the cleanup servers. Called once, as the app
+    /// quits; blocks until it's done so nothing is left running.
+    func shutdown() {
+        guard let engine else { return }
+        self.engine = nil
+        engine.shutdown()
     }
 
     /// Re-apply cleanup settings without reloading the speech model.
@@ -146,7 +156,10 @@ final class EngineController: ObservableObject {
 
     private func deliver(_ result: Result<Dictation, Error>, _ completion: @escaping (Result<Dictation, Error>) -> Void) {
         DispatchQueue.main.async {
-            if case .success(let d) = result { self.lastDictation = d }
+            if case .success(let d) = result {
+                self.lastDictation = d
+                self.historyRevision += 1
+            }
             completion(result)
         }
     }
@@ -233,12 +246,45 @@ final class EngineController: ObservableObject {
         }
     }
 
+    // MARK: - History
+
+    /// Past dictations, newest first; only those containing `query` if given.
+    func history(matching query: String = "", limit: Int, completion: @escaping ([HistoryEntry]) -> Void) {
+        guard let engine else { return completion([]) }
+        let query = query.trimmingCharacters(in: .whitespaces)
+        queue.async {
+            let entries = (try? engine.history(query: query.isEmpty ? nil : query, limit: UInt32(limit))) ?? []
+            DispatchQueue.main.async { completion(entries) }
+        }
+    }
+
+    /// Totals over the kept history, and over the last `days` days.
+    func historyStats(recentDays days: Int, completion: @escaping (HistoryStats?) -> Void) {
+        guard let engine else { return completion(nil) }
+        let since = Int64(Date().timeIntervalSince1970) - Int64(days) * 86_400
+        queue.async {
+            let stats = try? engine.historyStats(since: since)
+            DispatchQueue.main.async { completion(stats) }
+        }
+    }
+
+    func deleteHistoryEntry(_ id: Int64) {
+        guard let engine else { return }
+        queue.async {
+            _ = try? engine.deleteHistoryEntry(id: id)
+            DispatchQueue.main.async { self.historyRevision += 1 }
+        }
+    }
+
     /// Delete history older than `days` (0 deletes everything). Returns how many were removed.
     func purgeHistory(olderThanDays days: Int, completion: @escaping (Int?) -> Void) {
         guard let engine else { return completion(nil) }
         queue.async {
             let removed = try? engine.purgeHistory(olderThanDays: UInt32(max(days, 0)))
-            DispatchQueue.main.async { completion(removed.map(Int.init)) }
+            DispatchQueue.main.async {
+                self.historyRevision += 1
+                completion(removed.map(Int.init))
+            }
         }
     }
 

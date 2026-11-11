@@ -10,12 +10,8 @@ struct GeneralTab: View {
 
     var body: some View {
         Form {
-            Section("Status") {
-                switch engine.status {
-                case .loading: Text("Loading the speech model…").foregroundStyle(.secondary)
-                case .ready: Text("Ready").foregroundStyle(.secondary)
-                case .failed(let message): Text(message).foregroundStyle(.red)
-                }
+            if case .failed(let message) = engine.status {
+                Section("Status") { Text(message).foregroundStyle(.red) }
             }
 
             Section("Startup") {

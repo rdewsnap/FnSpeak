@@ -66,6 +66,7 @@ struct AccountTab: View {
         } footer: {
             Text("An account is optional. It adds sync between Macs, teams with a shared glossary, and hosted cleanup and meeting summaries.")
                 .font(.callout).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
