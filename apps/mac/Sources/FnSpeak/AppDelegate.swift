@@ -67,7 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if prefs.onboarded {
             begin()
             // Opened by hand, show the window; started at login, stay out of the way.
-            if !atLogin { showSettings(tab: .home) }
+            // A missing permission means dictation can't work, so say so even then.
+            if !atLogin || !Permission.missing.isEmpty { showSettings(tab: .home) }
         } else {
             showOnboarding()
         }
@@ -173,6 +174,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             } else {
                 overlay.show(.error("Microphone is off for FnSpeak in System Settings"))
+                // The window says why it's needed and has the button to fix it.
+                showSettings(tab: .home)
             }
             return false
         }
@@ -497,6 +500,12 @@ extension AppDelegate: NSMenuDelegate {
         open.target = self
         menu.addItem(open)
         menu.addItem(.separator())
+        if let missing = Permission.missing.first {
+            let fix = NSMenuItem(title: "FnSpeak needs \(missing == .microphone ? "the microphone" : "Accessibility")…", action: #selector(openHome), keyEquivalent: "")
+            fix.target = self
+            fix.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: nil)
+            menu.addItem(fix)
+        }
         menu.addItem(withTitle: prefs.paused ? "Paused" : status, action: nil, keyEquivalent: "")
         if let warning = engine.cleanupWarning {
             menu.addItem(withTitle: warning, action: nil, keyEquivalent: "")

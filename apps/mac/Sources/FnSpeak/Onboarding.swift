@@ -59,7 +59,7 @@ struct OnboardingView: View {
             footer
         }
         .padding(24)
-        .frame(width: 520, height: 440)
+        .frame(width: 540, height: 480)
         .onAppear {
             choice = EngineController.name(of: hardware.recommendedMode)
             if let start = Step(rawValue: startAt) { step = start }
@@ -78,20 +78,13 @@ struct OnboardingView: View {
     private var permissions: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Hold a key, talk, let go. FnSpeak types what you meant, spelled the way your projects and contacts spell it.")
-            GroupBox("Permissions") {
-                VStack(alignment: .leading, spacing: 10) {
-                    permissionRow("Microphone — to hear you", granted: micGranted,
-                                  denied: micStatus == .denied || micStatus == .restricted, pane: "Privacy_Microphone") {
-                        AudioRecorder.requestPermission { _ in micStatus = AVCaptureDevice.authorizationStatus(for: .audio) }
-                    }
-                    permissionRow("Accessibility — for the hotkey and typing into apps", granted: axGranted,
-                                  denied: false, pane: "Privacy_Accessibility") {
-                        _ = ContextReader.requestAccessibility(prompt: true)
-                    }
+            GroupBox("Two things macOS has to allow") {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(Permission.allCases) { PermissionRow($0) }
                 }
                 .padding(4)
             }
-            Text("These update here as soon as you allow them.").font(.callout).foregroundStyle(.secondary)
+            Text("These update as soon as you allow them.").font(.callout).foregroundStyle(.secondary)
         }
     }
 
@@ -234,26 +227,5 @@ struct OnboardingView: View {
             next = beyond
         }
         step = next
-    }
-
-    private func permissionRow(_ title: String, granted: Bool, denied: Bool, pane: String, request: @escaping () -> Void) -> some View {
-        HStack {
-            Image(systemName: granted ? "checkmark.circle.fill" : "circle").foregroundStyle(granted ? .green : .secondary)
-            Text(title)
-            Spacer()
-            if !granted {
-                if denied {
-                    Button("Open Settings") { openPane(pane) }
-                } else {
-                    Button("Allow", action: request)
-                }
-            }
-        }
-    }
-
-    private func openPane(_ pane: String) {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
-            NSWorkspace.shared.open(url)
-        }
     }
 }

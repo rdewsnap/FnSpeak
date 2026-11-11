@@ -11,6 +11,10 @@ struct PrivacyTab: View {
 
     var body: some View {
         Form {
+            Section("Permissions") {
+                ForEach(Permission.allCases) { PermissionRow($0) }
+            }
+
             Section("What leaves this Mac") {
                 fact("mic.fill", "Your voice", "Never. Audio is turned into text on this Mac and thrown away. It isn't saved.")
                 switch prefs.mode {

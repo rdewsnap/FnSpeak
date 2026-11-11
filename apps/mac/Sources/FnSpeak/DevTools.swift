@@ -11,6 +11,8 @@ import SwiftUI
 ///                                 result to selftest.txt
 ///   FNSPEAK_DOWNLOAD=whisper      with the above: download that model first,
 ///                                 the way the Download button would
+///   FNSPEAK_PREVIEW_PERMISSIONS=off   draw everything as if the microphone
+///                                 and Accessibility were switched off
 ///   FNSPEAK_DATA_DIR=/some/dir    use this instead of Application Support
 ///                                 (see ModelLocator), to leave real data alone
 enum DevTools {

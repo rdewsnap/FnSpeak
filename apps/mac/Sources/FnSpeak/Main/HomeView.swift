@@ -11,8 +11,8 @@ struct HomeView: View {
     @ObservedObject private var downloader = ModelDownloader.shared
     @State private var stats: HistoryStats?
     @State private var recent: [HistoryEntry] = []
-    @State private var micGranted = AudioRecorder.hasPermission
-    @State private var axGranted = ContextReader.requestAccessibility(prompt: false)
+    @State private var micGranted = Permission.microphone.state == .allowed
+    @State private var axGranted = Permission.accessibility.state == .allowed
 
     private let poll = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
     /// What most people manage on a keyboard, for the time-saved estimate.
@@ -38,8 +38,8 @@ struct HomeView: View {
         .onChange(of: engine.status) { reload() }
         .onReceive(poll) { _ in
             // Permissions change in System Settings, so keep looking.
-            micGranted = AudioRecorder.hasPermission
-            axGranted = ContextReader.requestAccessibility(prompt: false)
+            micGranted = Permission.microphone.state == .allowed
+            axGranted = Permission.accessibility.state == .allowed
         }
     }
 
@@ -114,8 +114,8 @@ struct HomeView: View {
             VStack(spacing: 8) {
                 ForEach(items) { item in
                     Card(padding: 12) {
-                        HStack(alignment: .firstTextBaseline, spacing: 10) {
-                            Image(systemName: item.symbol).foregroundStyle(item.tint).frame(width: 18)
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: item.symbol).foregroundStyle(item.tint).frame(width: 18).padding(.top, 2)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(item.title).fontWeight(.medium)
                                 Text(item.detail).font(.callout).foregroundStyle(.secondary)
@@ -143,14 +143,16 @@ struct HomeView: View {
     private var problemItems: [Problem] {
         var items: [Problem] = []
         if !micGranted {
-            items.append(Problem(id: "mic", symbol: "mic.slash.fill", tint: .red, title: "Microphone access is off",
-                                 detail: "FnSpeak can't hear you until it's allowed in System Settings.",
-                                 button: micButton, action: fixMicrophone))
+            let mic = Permission.microphone
+            items.append(Problem(id: "mic", symbol: "mic.slash.fill", tint: .red, title: "FnSpeak needs the microphone",
+                                 detail: mic.why + (mic.state == .off ? " " + mic.settingsHint : ""),
+                                 button: mic.actionTitle) { mic.request { micGranted = Permission.microphone.state == .allowed } })
         }
         if !axGranted {
-            items.append(Problem(id: "ax", symbol: "hand.raised.fill", tint: .orange, title: "Accessibility access is off",
-                                 detail: "It's how FnSpeak types into other apps and sees which field you're in.",
-                                 button: "Open Settings") { Self.openPrivacyPane("Privacy_Accessibility") })
+            let ax = Permission.accessibility
+            items.append(Problem(id: "ax", symbol: "keyboard", tint: .orange, title: "FnSpeak needs Accessibility",
+                                 detail: ax.why + " " + ax.settingsHint,
+                                 button: ax.actionTitle) { ax.request() })
         }
         if case .failed(let message) = engine.status, missingModels.isEmpty {
             items.append(Problem(id: "engine", symbol: "exclamationmark.triangle.fill", tint: .red, title: "The speech model didn't load",
@@ -165,26 +167,6 @@ struct HomeView: View {
                                  detail: "The hotkey does nothing until you resume.", button: "Resume", action: actions.togglePause))
         }
         return items
-    }
-
-    private var micButton: String {
-        AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined ? "Allow" : "Open Settings"
-    }
-
-    private func fixMicrophone() {
-        if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                DispatchQueue.main.async { micGranted = granted }
-            }
-        } else {
-            Self.openPrivacyPane("Privacy_Microphone")
-        }
-    }
-
-    private static func openPrivacyPane(_ pane: String) {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
-            NSWorkspace.shared.open(url)
-        }
     }
 
     // MARK: - Stats
