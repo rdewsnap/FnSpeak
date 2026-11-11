@@ -59,6 +59,8 @@ final class MeetingController: NSObject, ObservableObject {
 
     private lazy var window = MeetingWindowController(controller: self)
     private lazy var listWindow = MeetingsListWindowController(controller: self)
+    /// Set by the app: show the Meetings page in the main window.
+    var showLibrary: (() -> Void)?
     private lazy var detector = MeetingDetector(controller: self)
 
     init(engine: EngineController, overlay: Overlay) {
@@ -466,7 +468,7 @@ final class MeetingController: NSObject, ObservableObject {
     }
 
     @objc func showList() {
-        listWindow.show()
+        if let showLibrary { showLibrary() } else { listWindow.show() }
     }
 
     /// "Start meeting…" or "Stop meeting", and "Meetings…".

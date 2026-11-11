@@ -13,6 +13,7 @@ import SwiftUI
 ///                                 the way the Download button would
 ///   FNSPEAK_PREVIEW_PERMISSIONS=off   draw everything as if the microphone
 ///                                 and Accessibility were switched off
+///   FNSPEAK_PREVIEW_MEETING=1     draw the app with a meeting about to start
 ///   FNSPEAK_DATA_DIR=/some/dir    use this instead of Application Support
 ///                                 (see ModelLocator), to leave real data alone
 enum DevTools {
@@ -31,17 +32,44 @@ enum DevTools {
             try? "engine \(engine.status) after \(loadMs) ms\n".write(to: directory.appendingPathComponent("load.txt"), atomically: true, encoding: .utf8)
             selfTest(engine: engine, directory: directory) {
                 let controller = MainWindowController(engine: engine, indexer: indexer, actions: MainWindowActions())
-                controller.window?.setContentSize(NSSize(width: 940, height: 680))
+                controller.window?.setContentSize(NSSize(width: 1000, height: 700))
                 controller.show(tab: .home)
+                let settings = SettingsWindowController(engine: engine, indexer: indexer)
+                settings.show()
                 var shots: [(SettingsTab, NSAppearance.Name)] = []
                 for appearance in [NSAppearance.Name.aqua, .darkAqua] {
                     for tab in SettingsTab.allCases { shots.append((tab, appearance)) }
                 }
-                capture(shots[...], controller: controller, directory: directory) {
+                capture(shots[...], windows: (controller, settings), directory: directory) {
                     onboarding(engine: engine, directory: directory) { NSApp.terminate(nil) }
                 }
             }
           }
+        }
+    }
+
+    private static func waitForEngine(_ engine: EngineController, then work: @escaping () -> Void) {
+        if engine.status != .loading { return work() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { waitForEngine(engine, then: work) }
+    }
+
+    private static func capture(_ shots: ArraySlice<(SettingsTab, NSAppearance.Name)>,
+                                windows: (main: MainWindowController, settings: SettingsWindowController),
+                                directory: URL, done: @escaping () -> Void) {
+        guard let (tab, appearance) = shots.first else { return done() }
+        let inSettings = SettingsTab.settings.contains(tab)
+        guard let window = inSettings ? windows.settings.window : windows.main.window, let view = window.contentView else { return done() }
+        window.appearance = NSAppearance(named: appearance)
+        SettingsRouter.shared.tab = tab
+        // Give SwiftUI a moment to lay the page out and load its data.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+            if let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: rep)
+                let suffix = appearance == .darkAqua ? "-dark" : ""
+                let file = directory.appendingPathComponent("\(tab.rawValue)\(suffix).png")
+                try? rep.representation(using: .png, properties: [:])?.write(to: file)
+            }
+            capture(shots.dropFirst(), windows: windows, directory: directory, done: done)
         }
     }
 
@@ -89,28 +117,6 @@ enum DevTools {
             }
         }
         shoot(0)
-    }
-
-    private static func waitForEngine(_ engine: EngineController, then work: @escaping () -> Void) {
-        if engine.status != .loading { return work() }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { waitForEngine(engine, then: work) }
-    }
-
-    private static func capture(_ shots: ArraySlice<(SettingsTab, NSAppearance.Name)>, controller: MainWindowController,
-                                directory: URL, done: @escaping () -> Void) {
-        guard let (tab, appearance) = shots.first, let window = controller.window, let view = window.contentView else { return done() }
-        window.appearance = NSAppearance(named: appearance)
-        SettingsRouter.shared.tab = tab
-        // Give SwiftUI a moment to lay the page out and load its data.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-            if let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
-                view.cacheDisplay(in: view.bounds, to: rep)
-                let suffix = appearance == .darkAqua ? "-dark" : ""
-                let file = directory.appendingPathComponent("\(tab.rawValue)\(suffix).png")
-                try? rep.representation(using: .png, properties: [:])?.write(to: file)
-            }
-            capture(shots.dropFirst(), controller: controller, directory: directory, done: done)
-        }
     }
 
     private static func selfTest(engine: EngineController, directory: URL, done: @escaping () -> Void) {

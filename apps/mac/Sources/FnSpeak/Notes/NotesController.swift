@@ -22,7 +22,13 @@ final class NotesController: NSObject {
         store.engine = engine
         bar.toggleMic = toggleMic
         bar.isListening = isListening
-        bar.onOpenHit = { [weak self] in self?.window.show($0) }
+        bar.onOpenHit = { [weak self] hit in
+            guard let self else { return }
+            guard let showLibrary = self.showLibrary else { return self.window.show(hit) }
+            self.libraryModel.reload()
+            self.libraryModel.select(hit)
+            showLibrary()
+        }
         hotkey.onPress = { [weak self] in self?.bar.toggle() }
         installMainMenu()
         registerHotkey()
@@ -100,8 +106,16 @@ final class NotesController: NSObject {
         bar.show()
     }
 
+    /// The list and selection behind the Notes page.
+    var libraryModel: NotesWindowModel { window.model }
+
+    /// Set by the app: show the Notes page in the main window.
+    var showLibrary: (() -> Void)?
+
     @objc func openNotes() {
-        window.show()
+        guard let showLibrary else { return window.show() }
+        libraryModel.reload()
+        showLibrary()
     }
 
     @objc func saveLastDictation() {

@@ -180,7 +180,7 @@ extension Note {
     }
 }
 
-private struct NotesRootView: View {
+struct NotesRootView: View {
     @ObservedObject var model: NotesWindowModel
 
     var body: some View {
@@ -191,6 +191,8 @@ private struct NotesRootView: View {
             detail
         }
         .searchable(text: $model.query, placement: .sidebar, prompt: "Search notes and meetings")
+        .toolbar(removing: .sidebarToggle)
+        .navigationTitle("Notes")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button { model.newNote() } label: { Label("New Note", systemImage: "square.and.pencil") }
@@ -205,7 +207,7 @@ private struct NotesRootView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .frame(minWidth: 680, minHeight: 420)
+        .frame(minWidth: 620, minHeight: 420)
     }
 
     @ViewBuilder private var detail: some View {

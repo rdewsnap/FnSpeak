@@ -7,6 +7,7 @@ struct NotesTab: View {
     @State private var exportStatus: String?
     @State private var exporting = false
     @State private var copied: String?
+    @State private var mcpNotice: String?
 
     var body: some View {
         Form {
@@ -93,6 +94,31 @@ struct NotesTab: View {
                     Text("This build doesn't include fnspeak-mcp at \(MCPSetup.serverPath). Build the app with scripts/build-mac.sh to get it.")
                         .font(.callout).foregroundStyle(.orange)
                 }
+                LabeledContent("Claude Desktop") {
+                    HStack {
+                        if MCPSetup.inClaudeDesktop && mcpNotice == nil {
+                            Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                        }
+                        if MCPSetup.hasClaudeDesktop && MCPSetup.isBundled {
+                            Button(MCPSetup.inClaudeDesktop ? "Update" : "Add to Claude Desktop") {
+                                mcpNotice = MCPSetup.addToClaudeDesktop(allowWrite: prefs.mcpAllowWrite)
+                                    ?? "Added. Quit and reopen Claude Desktop to see it."
+                            }
+                        } else if !MCPSetup.hasClaudeDesktop {
+                            Text("Not installed").foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                LabeledContent("Claude Code") {
+                    if MCPSetup.inClaudeCode {
+                        Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    } else {
+                        Text("Run the command below").foregroundStyle(.secondary)
+                    }
+                }
+                if let mcpNotice {
+                    Text(mcpNotice).font(.callout).foregroundStyle(.secondary)
+                }
                 snippet("Claude Desktop (claude_desktop_config.json)", MCPSetup.desktopConfig(allowWrite: prefs.mcpAllowWrite), id: "desktop")
                 snippet("Claude Code", MCPSetup.claudeCodeCommand(allowWrite: prefs.mcpAllowWrite), id: "code")
             }
@@ -165,6 +191,58 @@ enum MCPSetup {
     static var serverPath: String { Bundle.main.bundlePath + "/Contents/MacOS/fnspeak-mcp" }
 
     static var isBundled: Bool { FileManager.default.isExecutableFile(atPath: serverPath) }
+
+    private static var desktopConfigURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Claude/claude_desktop_config.json")
+    }
+
+    private static var claudeCodeConfigURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json")
+    }
+
+    /// Claude Desktop is installed, going by its settings folder.
+    static var hasClaudeDesktop: Bool {
+        FileManager.default.fileExists(atPath: desktopConfigURL.deletingLastPathComponent().path)
+    }
+
+    static var inClaudeDesktop: Bool { mentionsServer(desktopConfigURL) }
+    static var inClaudeCode: Bool { mentionsServer(claudeCodeConfigURL) }
+
+    /// Some assistant on this Mac is already set up to use the server.
+    static var isConnected: Bool { inClaudeDesktop || inClaudeCode }
+
+    private static func mentionsServer(_ file: URL) -> Bool {
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return false }
+        return text.contains("fnspeak-mcp")
+    }
+
+    /// Add the server to Claude Desktop's config, keeping everything else in
+    /// it and a copy of the file as it was. Returns what went wrong, if anything.
+    static func addToClaudeDesktop(allowWrite: Bool) -> String? {
+        let file = desktopConfigURL
+        var config: [String: Any] = [:]
+        if let data = try? Data(contentsOf: file), !data.isEmpty {
+            guard let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return "Claude Desktop's config isn't valid JSON, so it was left alone. Paste the snippet in by hand."
+            }
+            config = parsed
+            try? data.write(to: file.appendingPathExtension("before-fnspeak"))
+        }
+        var servers = config["mcpServers"] as? [String: Any] ?? [:]
+        var server: [String: Any] = ["command": serverPath]
+        if allowWrite { server["args"] = ["--allow-write"] }
+        servers["fnspeak"] = server
+        config["mcpServers"] = servers
+        do {
+            let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: file, options: .atomic)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
 
     static func desktopConfig(allowWrite: Bool) -> String {
         var server: [String: Any] = ["command": serverPath]

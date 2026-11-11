@@ -3,12 +3,33 @@ import SwiftUI
 
 struct MeetingsTab: View {
     @ObservedObject var prefs = Preferences.shared
+    @ObservedObject private var upcoming = UpcomingMeetings.shared
     @State private var screenAccess = CGPreflightScreenCaptureAccess()
 
     private static let retentionChoices = [0, 7, 30, 90, 365]
 
     var body: some View {
         Form {
+            Section("Calendar") {
+                HStack {
+                    Label(upcoming.hasCalendarAccess ? "Connected to the calendars on this Mac" : "Not connected",
+                          systemImage: upcoming.hasCalendarAccess ? "checkmark.circle.fill" : "calendar.badge.exclamationmark")
+                        .foregroundStyle(upcoming.hasCalendarAccess ? Color.green : Color.orange)
+                    Spacer()
+                    if !upcoming.hasCalendarAccess {
+                        Button("Connect Calendar") { upcoming.connectCalendar() }
+                    }
+                }
+                Text("FnSpeak reads the calendars in the macOS Calendar app, on this Mac only. It uses them to name a meeting, list who's in it, offer to record when a call starts, and show the next meeting with its join link in the menu bar.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Text("For Google or Outlook calendars, add the account to macOS with Calendars switched on.")
+                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button("Internet Accounts…") { UpcomingMeetings.openInternetAccounts() }
+                }
+            }
+
             Section("Starting") {
                 Toggle("Suggest recording when a call starts", isOn: $prefs.meetingAutoDetect)
                 Text("When Zoom, Teams, FaceTime, Slack or a Meet tab looks like a call during a calendar event, FnSpeak sends a notification with a Start button. It never starts recording by itself.")
@@ -62,7 +83,9 @@ struct MeetingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { upcoming.refresh() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            upcoming.refresh()
             screenAccess = CGPreflightScreenCaptureAccess()
         }
     }

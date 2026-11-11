@@ -16,20 +16,28 @@ struct Sidebar: View {
             .padding(.top, Theme.titlebarInset + 4)
             .padding(.bottom, 12)
 
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(SettingsTab.main) { row($0) }
-
-                    header("Library")
-                    link("Notes", symbol: "note.text", action: actions.openNotes)
-                    link("Meetings", symbol: "person.2.wave.2", action: actions.openMeetings)
-
-                    header("Settings")
-                    ForEach(SettingsTab.settings) { row($0) }
-                }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(SettingsTab.main) { row($0) }
             }
+            .padding(.horizontal, 8)
+
+            SetupChecklist()
+                .padding(.horizontal, 10)
+                .padding(.top, 14)
+
+            Spacer(minLength: 12)
+
+            VStack(alignment: .leading, spacing: 1) {
+                SidebarRow(title: "Settings", symbol: "gearshape", selected: false, external: false) {
+                    router.tab = router.settingsPage
+                }
+                .keyboardShortcut(",", modifiers: .command)
+                SidebarRow(title: "Help", symbol: "questionmark.circle", selected: false, external: true) {
+                    NSWorkspace.shared.open(AppInfo.helpURL)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.bottom, 8)
 
             Divider()
             status
@@ -37,23 +45,10 @@ struct Sidebar: View {
         .background(SidebarBackground().ignoresSafeArea())
     }
 
-    private func header(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.tertiary)
-            .padding(.leading, 8)
-            .padding(.top, 12)
-            .padding(.bottom, 3)
-    }
-
     private func row(_ tab: SettingsTab) -> some View {
         SidebarRow(title: tab.title, symbol: tab.symbol, selected: router.tab == tab, external: false) {
             router.tab = tab
         }
-    }
-
-    private func link(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
-        SidebarRow(title: title, symbol: symbol, selected: false, external: true, action: action)
     }
 
     /// One line on how things are, at the bottom; clicking goes Home.
@@ -77,7 +72,7 @@ struct Sidebar: View {
     }
 }
 
-private struct SidebarRow: View {
+struct SidebarRow: View {
     let title: String
     let symbol: String
     let selected: Bool

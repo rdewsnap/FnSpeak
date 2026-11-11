@@ -2,6 +2,7 @@ import Foundation
 
 enum AppInfo {
     static let repoURL = URL(string: "https://github.com/rdewsnap/FnSpeak")!
+    static let helpURL = URL(string: "https://github.com/rdewsnap/FnSpeak#readme")!
     static let releasesURL = URL(string: "https://github.com/rdewsnap/FnSpeak/releases")!
 
     /// From Info.plist; a bare `swift run` binary has none.

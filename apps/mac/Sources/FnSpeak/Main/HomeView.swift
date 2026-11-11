@@ -9,6 +9,7 @@ struct HomeView: View {
     let actions: MainWindowActions
 
     @ObservedObject private var downloader = ModelDownloader.shared
+    @ObservedObject private var upcoming = UpcomingMeetings.shared
     @State private var stats: HistoryStats?
     @State private var recent: [HistoryEntry] = []
     @State private var micGranted = Permission.microphone.state == .allowed
@@ -23,6 +24,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 22) {
                 hero
                 problems
+                upNext
                 statTiles
                 recentSection
                 shortcuts
@@ -167,6 +169,33 @@ struct HomeView: View {
                                  detail: "The hotkey does nothing until you resume.", button: "Resume", action: actions.togglePause))
         }
         return items
+    }
+
+    // MARK: - Up next
+
+    @ViewBuilder private var upNext: some View {
+        if let meeting = upcoming.next {
+            Card(padding: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "calendar").foregroundStyle(.secondary).frame(width: 18)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(meeting.title).fontWeight(.medium).lineLimit(1)
+                        Text(meeting.isNow() ? "On now" : "Starts \(meeting.when())").font(.callout).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    if let url = meeting.joinURL {
+                        Button("Join\(meeting.service.map { " on \($0)" } ?? "")") { NSWorkspace.shared.open(url) }
+                        Button("Join and Record") {
+                            NSWorkspace.shared.open(url)
+                            actions.startMeeting()
+                        }
+                        .keyboardShortcut(.defaultAction)
+                    } else {
+                        Button("Record", action: actions.startMeeting)
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Stats

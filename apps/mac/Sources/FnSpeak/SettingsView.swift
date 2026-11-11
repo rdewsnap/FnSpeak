@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case home, history, general, dictation, cleanup, vocabulary, snippets, context, notes, meetings, integrations, account, privacy, advanced, about
+    case home, history, meetingsPage, notesPage, style, general, dictation, cleanup, vocabulary, snippets, context, notes, meetings, integrations, account, privacy, advanced, about
 
     var id: String { rawValue }
 
@@ -9,6 +9,9 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: return "Home"
         case .history: return "History"
+        case .meetingsPage: return "Meetings"
+        case .notesPage: return "Notes"
+        case .style: return "Style"
         case .general: return "General"
         case .dictation: return "Dictation"
         case .cleanup: return "Cleanup"
@@ -29,6 +32,9 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: return "house"
         case .history: return "clock.arrow.circlepath"
+        case .meetingsPage: return "record.circle"
+        case .notesPage: return "note.text"
+        case .style: return "textformat"
         case .general: return "gearshape"
         case .dictation: return "mic"
         case .cleanup: return "wand.and.stars"
@@ -48,17 +54,18 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
 extension SettingsTab {
     /// The top of the sidebar: what you use, as opposed to what you set once.
-    static let main: [SettingsTab] = [.home, .history, .vocabulary, .snippets]
+    static let main: [SettingsTab] = [.home, .history, .meetingsPage, .notesPage, .vocabulary, .snippets, .style]
     static let settings: [SettingsTab] = [.general, .dictation, .cleanup, .context, .notes, .meetings, .integrations, .account, .privacy, .advanced, .about]
 
     /// One line under the page title.
     var subtitle: String? {
         switch self {
-        case .home, .history: return nil
+        case .home, .history, .meetingsPage, .notesPage: return nil
+        case .style: return "How FnSpeak should write in each kind of app."
         case .snippets: return "Say a snippet's trigger while dictating and its text is typed in its place."
         case .general: return "Startup, where FnSpeak shows up, and the pill."
         case .dictation: return "The hotkey, how it's triggered, and your microphone."
-        case .cleanup: return "What tidies the transcript, and how it should write in each app."
+        case .cleanup: return "What tidies the transcript after it's heard."
         case .vocabulary: return "Names and terms FnSpeak spells your way."
         case .context: return "What FnSpeak reads to get names and tone right."
         case .notes: return "The notes bar and where notes are kept."
@@ -72,30 +79,52 @@ extension SettingsTab {
     }
 }
 
-/// Which tab is showing. Shared so one tab can send you to another.
+/// What's showing where. The main window has the pages you use; the
+/// settings live in a window of their own. Setting `tab` to either kind goes
+/// to the right window, so any view can send you anywhere.
 final class SettingsRouter: ObservableObject {
     static let shared = SettingsRouter()
 
-    @Published var tab: SettingsTab {
-        didSet { UserDefaults.standard.set(tab.rawValue, forKey: "settingsTab") }
+    /// The page in the main window.
+    @Published private(set) var page: SettingsTab = .home
+    /// The page in the settings window.
+    @Published private(set) var settingsPage: SettingsTab {
+        didSet { UserDefaults.standard.set(settingsPage.rawValue, forKey: "settingsTab") }
+    }
+
+    /// Set by the app: bring up the settings window.
+    var openSettingsWindow: (() -> Void)?
+
+    var tab: SettingsTab {
+        get { page }
+        set {
+            if SettingsTab.settings.contains(newValue) {
+                settingsPage = newValue
+                openSettingsWindow?()
+            } else {
+                page = newValue
+            }
+        }
     }
 
     private init() {
-        tab = SettingsTab(rawValue: UserDefaults.standard.string(forKey: "settingsTab") ?? "") ?? .home
+        let saved = SettingsTab(rawValue: UserDefaults.standard.string(forKey: "settingsTab") ?? "")
+        settingsPage = saved.flatMap { SettingsTab.settings.contains($0) ? $0 : nil } ?? .general
     }
 }
 
-/// Just picks the page; each one lives in Settings/. Home and History are
-/// drawn by the main window itself.
+/// Just picks the page; each one lives in Settings/. Home, History, Notes
+/// and Meetings are drawn by the main window itself.
 struct SettingsView: View {
-    @ObservedObject var router = SettingsRouter.shared
+    let tab: SettingsTab
     @ObservedObject var engine: EngineController
     let indexer: PersonalIndexer
 
     var body: some View {
         Group {
-            switch router.tab {
-            case .home, .history: EmptyView()
+            switch tab {
+            case .home, .history, .meetingsPage, .notesPage: EmptyView()
+            case .style: StyleTab()
             case .general: GeneralTab(engine: engine)
             case .dictation: DictationTab()
             case .cleanup: CleanupTab(engine: engine)

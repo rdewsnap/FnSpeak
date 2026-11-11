@@ -54,33 +54,10 @@ struct CleanupTab: View {
             if prefs.mode == "cloud" { cloudSection }
 
             Section("Writing style") {
-                ForEach(AppCategory.allCases) { category in
-                    Picker(category.label, selection: styleBinding(for: category)) {
-                        ForEach(WritingStyle.allCases) { Text("\($0.label) — \($0.detail)").tag($0) }
-                    }
-                }
-                Text("Used by the cleanup model in local and cloud modes. Apps outside these lists get a style picked from the app and the page you're on.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-
-            Section("Style overrides by app") {
-                if prefs.styleOverrides.isEmpty {
-                    Text("Apps without an override use their category's style.").foregroundStyle(.secondary)
-                }
-                ForEach(prefs.styleOverrides.keys.sorted(), id: \.self) { bundleId in
-                    HStack {
-                        AppLabel(bundleId: bundleId)
-                        Spacer()
-                        Picker("", selection: overrideBinding(bundleId)) {
-                            ForEach(WritingStyle.allCases) { Text($0.label).tag($0) }
-                        }
-                        .labelsHidden().fixedSize()
-                        Button { prefs.styleOverrides[bundleId] = nil } label: { Image(systemName: "minus.circle") }
-                            .buttonStyle(.borderless)
-                    }
-                }
-                AddAppMenu(title: "Add app…", excluding: Set(prefs.styleOverrides.keys)) {
-                    prefs.styleOverrides[$0] = (AppCategory.of($0)?.defaultStyle ?? .prose).rawValue
+                HStack {
+                    Text("How it writes in chat, email and code is set in Style.").foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Open Style") { SettingsRouter.shared.tab = .style }
                 }
             }
 
@@ -189,19 +166,5 @@ struct CleanupTab: View {
         }
         let chip = hardware.appleSilicon ? "Apple silicon" : "Intel"
         return String(format: "Recommended for this Mac: %@ (%.0f GB memory, %@).", name, hardware.totalMemoryGb, chip)
-    }
-
-    private func styleBinding(for category: AppCategory) -> Binding<WritingStyle> {
-        Binding(
-            get: { prefs.categoryStyle(category) },
-            set: { prefs.setCategoryStyle($0, for: category) }
-        )
-    }
-
-    private func overrideBinding(_ bundleId: String) -> Binding<WritingStyle> {
-        Binding(
-            get: { WritingStyle(rawValue: prefs.styleOverrides[bundleId] ?? "") ?? .prose },
-            set: { prefs.styleOverrides[bundleId] = $0.rawValue }
-        )
     }
 }

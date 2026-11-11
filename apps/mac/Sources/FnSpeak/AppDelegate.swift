@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem!
     private var mainWindow: MainWindowController?
+    private var settingsWindow: SettingsWindowController?
     private var onboardingWindow: NSWindow?
     private var prefsObserver: AnyCancellable?
     private var signalSources: [DispatchSourceSignal] = []
@@ -62,6 +63,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.onIdleClick = { [weak self] in self?.notes.newNote() }
         setUpActions()
         AccountController.shared.engine = engine
+        SettingsRouter.shared.openSettingsWindow = { [weak self] in self?.showSettingsWindow() }
+        notes.showLibrary = { [weak self] in self?.showSettings(tab: .notesPage) }
+        meetings.showLibrary = { [weak self] in self?.showSettings(tab: .meetingsPage) }
+        UpcomingMeetings.shared.start()
         ModelDownloader.shared.onReady = { [weak self] item in self?.modelArrived(item) }
 
         if prefs.onboarded {
@@ -406,18 +411,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showSettings(tab: .about)
     }
 
+    /// Show a page: settings pages open the settings window, the rest the
+    /// main one. With no page, the main window as it was left.
     private func showSettings(tab: SettingsTab? = nil) {
+        if let tab, SettingsTab.settings.contains(tab) {
+            // The router opens the settings window through `openSettingsWindow`.
+            SettingsRouter.shared.tab = tab
+            return
+        }
         if mainWindow == nil {
             let actions = MainWindowActions(
-                openNotes: { [weak self] in self?.notes.openNotes() },
                 newNote: { [weak self] in self?.notes.newNote() },
-                openMeetings: { [weak self] in self?.meetings.showList() },
                 startMeeting: { [weak self] in self?.meetings.requestStart() },
+                meetings: meetings,
                 togglePause: { [weak self] in self?.togglePause() }
             )
             mainWindow = MainWindowController(engine: engine, indexer: indexer, actions: actions)
         }
         mainWindow?.show(tab: tab)
+    }
+
+    private func showSettingsWindow() {
+        if settingsWindow == nil {
+            settingsWindow = SettingsWindowController(engine: engine, indexer: indexer)
+        }
+        settingsWindow?.show()
+    }
+
+    // MARK: - Meetings on the calendar
+
+    @objc private func joinMeeting(_ sender: NSMenuItem) {
+        guard let meeting = sender.representedObject as? MeetingBox, let url = meeting.value.joinURL else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc private func joinAndRecordMeeting(_ sender: NSMenuItem) {
+        guard let meeting = sender.representedObject as? MeetingBox else { return }
+        if let url = meeting.value.joinURL { NSWorkspace.shared.open(url) }
+        meetings.requestStart(title: meeting.value.title)
+    }
+
+    /// The meeting that's on or about to start, at the top of the menu.
+    private func addUpcomingMeeting(to menu: NSMenu) {
+        guard let meeting = UpcomingMeetings.shared.next else { return }
+        let box = MeetingBox(meeting)
+        let title = meeting.title.count > 40 ? String(meeting.title.prefix(39)) + "…" : meeting.title
+        let header = NSMenuItem(title: "\(title) · \(meeting.when())", action: nil, keyEquivalent: "")
+        header.image = NSImage(systemSymbolName: "calendar", accessibilityDescription: nil)
+        menu.addItem(header)
+        if meeting.joinURL != nil {
+            let service = meeting.service.map { " on \($0)" } ?? ""
+            let both = NSMenuItem(title: "Join\(service) and Record", action: #selector(joinAndRecordMeeting(_:)), keyEquivalent: "")
+            both.target = self
+            both.representedObject = box
+            both.indentationLevel = 1
+            both.isEnabled = !meetings.isRecording
+            menu.addItem(both)
+            let join = NSMenuItem(title: "Join\(service)", action: #selector(joinMeeting(_:)), keyEquivalent: "")
+            join.target = self
+            join.representedObject = box
+            join.indentationLevel = 1
+            menu.addItem(join)
+        } else if !meetings.isRecording {
+            let record = NSMenuItem(title: "Record This Meeting", action: #selector(joinAndRecordMeeting(_:)), keyEquivalent: "")
+            record.target = self
+            record.representedObject = box
+            record.indentationLevel = 1
+            menu.addItem(record)
+        }
+        menu.addItem(.separator())
     }
 
     private func showOnboarding() {
@@ -500,6 +562,7 @@ extension AppDelegate: NSMenuDelegate {
         open.target = self
         menu.addItem(open)
         menu.addItem(.separator())
+        addUpcomingMeeting(to: menu)
         if let missing = Permission.missing.first {
             let fix = NSMenuItem(title: "FnSpeak needs \(missing == .microphone ? "the microphone" : "Accessibility")…", action: #selector(openHome), keyEquivalent: "")
             fix.target = self
@@ -571,4 +634,10 @@ extension AppDelegate: NSMenuDelegate {
         quit.target = self
         menu.addItem(quit)
     }
+}
+
+/// A meeting carried by a menu item, which can only hold objects.
+private final class MeetingBox: NSObject {
+    let value: UpcomingMeeting
+    init(_ value: UpcomingMeeting) { self.value = value }
 }

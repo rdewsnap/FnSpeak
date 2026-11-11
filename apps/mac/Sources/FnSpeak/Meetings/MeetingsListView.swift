@@ -49,6 +49,8 @@ struct MeetingsListView: View {
             }
         }
         .searchable(text: $query, placement: .sidebar, prompt: "Search meetings")
+        .toolbar(removing: .sidebarToggle)
+        .navigationTitle("Meetings")
         .task(id: controller.revision) { reload() }
         .task(id: query) { await runSearch() }
         .toolbar {
@@ -61,7 +63,7 @@ struct MeetingsListView: View {
                 .help(controller.isRecording ? "Show the meeting being recorded" : "Start recording a meeting")
             }
         }
-        .frame(minWidth: 720, minHeight: 440)
+        .frame(minWidth: 620, minHeight: 440)
     }
 
     private var sidebar: some View {
