@@ -943,7 +943,7 @@ dependencies = [
 
 [[package]]
 name = "fnspeak-bench"
-version = "0.2.0"
+version = "0.3.0-beta.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -955,7 +955,7 @@ dependencies = [
 
 [[package]]
 name = "fnspeak-core"
-version = "0.2.0"
+version = "0.3.0-beta.1"
 dependencies = [
  "chrono",
  "log",
@@ -975,7 +975,7 @@ dependencies = [
 
 [[package]]
 name = "fnspeak-ffi"
-version = "0.2.0"
+version = "0.3.0-beta.1"
 dependencies = [
  "fnspeak-core",
  "log",
@@ -985,7 +985,7 @@ dependencies = [
 
 [[package]]
 name = "fnspeak-mcp"
-version = "0.2.0"
+version = "0.3.0-beta.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1002,7 +1002,7 @@ dependencies = [
 
 [[package]]
 name = "fnspeak-server"
-version = "0.2.0"
+version = "0.3.0-beta.1"
 dependencies = [
  "anyhow",
  "axum",
