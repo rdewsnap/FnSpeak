@@ -1,7 +1,7 @@
 # Snippets
 
 Date: 2026-11-10
-Status: approved design, not yet implemented
+Status: implemented on `claude/flow-team-features-e4b1eb`; the in-app checks in the plan have not been run
 
 ## Goal
 
@@ -52,7 +52,10 @@ A trigger is rejected, with a reason shown to the user, when:
 
 The same rules run in the core (for personal snippets) and on the server (for
 team snippets, minus the common-phrase check, which needs the core's word
-list; the app checks it before sharing).
+list). The core closes that gap: `replace_team` runs every rule on each row
+the server sends and skips the ones that fail, so a team snippet with an
+everyday-phrase trigger never fires on this Mac. The editor runs the same
+rules when a team snippet's trigger is edited.
 
 ## Core: `fnspeak-core/src/snippets/`
 
@@ -187,7 +190,8 @@ remove. The per-team list is for other clients.
 ## Errors
 
 - A failed snippet pull leaves the last applied team snippets in place and
-  sets `SyncEngine.lastError`, as the glossary pull does.
+  sets `SyncEngine.lastError`. Notes and meetings still sync in that run, so
+  a server that predates the snippet routes does not stop them.
 - A failed share shows the server's message in the Snippets tab; the
   personal snippet is unaffected.
 - A store that cannot be opened disables snippets for the session and is
