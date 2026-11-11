@@ -338,7 +338,18 @@ impl FnSpeakEngine {
         // A meeting still "recording" means the app quit or crashed mid-meeting.
         notes.recover_interrupted().map_err(storage_err)?;
 
-        let mut pipeline = Pipeline::new(build_stt(&config.speech)?, vocab, config.mode.into()).with_history(history);
+        // The speech model and the cleanup server each take seconds to
+        // load; do both at once so the app is ready in the longer of the two.
+        let mode: CleanupMode = config.mode.into();
+        let (stt, cleaner) = std::thread::scope(|scope| {
+            let cleaner = scope.spawn(|| build_cleaner(mode, config.local.as_ref(), config.cloud.as_ref()));
+            let stt = build_stt(&config.speech);
+            (stt, cleaner.join())
+        });
+        let stt = stt?;
+        let cleaner = cleaner.map_err(|_| FnSpeakError::Setup("the cleanup model crashed while starting".into()))??;
+
+        let mut pipeline = Pipeline::new(stt, vocab, mode).with_history(history);
         // Snippets are optional: without the store, dictation just doesn't expand them.
         pipeline.snippets = match SnippetStore::open(dir.join("snippets.db")) {
             Ok(store) => Some(store),
@@ -347,7 +358,7 @@ impl FnSpeakEngine {
                 None
             }
         };
-        pipeline.set_cleaner(build_cleaner(config.mode.into(), config.local.as_ref(), config.cloud.as_ref())?);
+        pipeline.set_cleaner(cleaner);
         Ok(Arc::new(FnSpeakEngine {
             pipeline: Arc::new(Mutex::new(pipeline)),
             notes: Arc::new(Mutex::new(notes)),

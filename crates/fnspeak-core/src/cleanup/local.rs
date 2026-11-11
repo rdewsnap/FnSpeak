@@ -180,18 +180,23 @@ struct KeepWarm {
 impl KeepWarm {
     fn spawn(client: OpenAiCompatCleaner, last_used: Arc<Mutex<Instant>>) -> Self {
         let (stop, rx) = mpsc::channel::<()>();
-        let thread = thread::spawn(move || loop {
-            let idle = last_used.lock().unwrap_or_else(|e| e.into_inner()).elapsed();
-            let wait = KEEP_WARM_AFTER.saturating_sub(idle);
-            match rx.recv_timeout(wait.max(Duration::from_secs(1))) {
-                Err(RecvTimeoutError::Timeout) => {}
-                // Stopped, or nobody left to stop us.
-                _ => return,
-            }
-            let idle = last_used.lock().unwrap_or_else(|e| e.into_inner()).elapsed();
-            if idle >= KEEP_WARM_AFTER {
-                client.warm(KEEP_WARM_TIMEOUT);
-                *last_used.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+        let thread = thread::spawn(move || {
+            // Warm up straight away, so the first dictation after launch
+            // finds the model loaded and the system prompt already cached.
+            client.warm(KEEP_WARM_TIMEOUT);
+            loop {
+                let idle = last_used.lock().unwrap_or_else(|e| e.into_inner()).elapsed();
+                let wait = KEEP_WARM_AFTER.saturating_sub(idle);
+                match rx.recv_timeout(wait.max(Duration::from_secs(1))) {
+                    Err(RecvTimeoutError::Timeout) => {}
+                    // Stopped, or nobody left to stop us.
+                    _ => return,
+                }
+                let idle = last_used.lock().unwrap_or_else(|e| e.into_inner()).elapsed();
+                if idle >= KEEP_WARM_AFTER {
+                    client.warm(KEEP_WARM_TIMEOUT);
+                    *last_used.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+                }
             }
         });
         KeepWarm { stop: Some(stop), thread: Some(thread) }

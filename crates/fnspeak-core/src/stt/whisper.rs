@@ -48,7 +48,12 @@ impl WhisperEngine {
         let ctx = WhisperContext::new_with_params(&config.model_path, params)
             .map_err(|e| SttError::Load(format!("{}: {e}", config.model_path.display())))?;
         let state = ctx.create_state().map_err(|e| SttError::Load(e.to_string()))?;
-        Ok(WhisperEngine { config, _ctx: ctx, state })
+        let mut engine = WhisperEngine { config, _ctx: ctx, state };
+        // The first run compiles the Metal pipelines, which costs a few
+        // hundred ms. Pay that now, on a second of silence, rather than on
+        // the first thing the user says.
+        let _ = engine.transcribe(&vec![0.0; super::SAMPLE_RATE as usize], &SttHints { vocabulary: Vec::new() });
+        Ok(engine)
     }
 }
 
