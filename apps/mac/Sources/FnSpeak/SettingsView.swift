@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, dictation, cleanup, vocabulary, context, notes, meetings, integrations, account, privacy, advanced, about
+    case general, dictation, cleanup, vocabulary, snippets, context, notes, meetings, integrations, account, privacy, advanced, about
 
     var id: String { rawValue }
 
@@ -11,6 +11,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .dictation: return "Dictation"
         case .cleanup: return "Cleanup"
         case .vocabulary: return "Vocabulary"
+        case .snippets: return "Snippets"
         case .context: return "Context"
         case .notes: return "Notes"
         case .meetings: return "Meetings"
@@ -28,6 +29,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .dictation: return "mic"
         case .cleanup: return "wand.and.stars"
         case .vocabulary: return "text.book.closed"
+        case .snippets: return "text.insert"
         case .context: return "macwindow"
         case .notes: return "note.text"
         case .meetings: return "person.2.wave.2"
@@ -66,6 +68,7 @@ struct SettingsView: View {
             case .dictation: DictationTab()
             case .cleanup: CleanupTab(engine: engine)
             case .vocabulary: VocabularyTab(engine: engine)
+            case .snippets: SnippetsTab(engine: engine)
             case .context: ContextTab(engine: engine, indexer: indexer)
             case .notes: NotesTab()
             case .meetings: MeetingsTab()
