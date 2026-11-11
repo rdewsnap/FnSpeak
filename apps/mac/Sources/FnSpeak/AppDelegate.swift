@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Combine
 import SwiftUI
 
@@ -34,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let atLogin = Self.launchedAtLogin
         Log.info("FnSpeak \(AppInfo.version) starting on macOS \(ProcessInfo.processInfo.operatingSystemVersionString)\(atLogin ? ", at login" : "")")
+        Log.info("Permissions: microphone \(Self.microphoneState), accessibility \(ContextReader.requestAccessibility(prompt: false) ? "allowed" : "off")")
         quitOnTerminationSignal()
         MainMenu.install(target: self, settings: #selector(openSettings), about: #selector(openAbout))
         if let directory = DevTools.snapshotDirectory {
@@ -68,6 +70,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if !atLogin { showSettings(tab: .home) }
         } else {
             showOnboarding()
+        }
+    }
+
+    private static var microphoneState: String {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized: return "allowed"
+        case .notDetermined: return "not asked yet"
+        case .denied: return "denied"
+        case .restricted: return "restricted"
+        @unknown default: return "unknown"
         }
     }
 
@@ -153,7 +165,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return false
         }
         guard AudioRecorder.hasPermission else {
-            overlay.show(.error("Microphone access is off"))
+            if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+                // Never asked, e.g. settings carried over from another Mac or
+                // an older name: ask now rather than sending them to Settings.
+                AudioRecorder.requestPermission { [weak self] granted in
+                    self?.overlay.show(granted ? .message("Microphone allowed. Try again.") : .error("Microphone access is off"))
+                }
+            } else {
+                overlay.show(.error("Microphone is off for FnSpeak in System Settings"))
+            }
             return false
         }
         if let front = NSWorkspace.shared.frontmostApplication,

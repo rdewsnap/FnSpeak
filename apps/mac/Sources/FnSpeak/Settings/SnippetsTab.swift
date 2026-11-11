@@ -86,6 +86,7 @@ struct SnippetsTab: View {
         .padding(.horizontal, Theme.gutter)
         .padding(.bottom, 16)
         .onAppear(perform: reload)
+        .onChange(of: engine.status) { reload() }
         .onChange(of: sync.snippetsRevision) { reload() }
         .confirmationDialog(
             "Remove “\(removing?.trigger ?? "")” from \(removing?.teamName ?? "the team")?",

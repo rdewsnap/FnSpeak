@@ -74,6 +74,7 @@ struct VocabularyTab: View {
         .padding(.horizontal, Theme.gutter)
         .padding(.bottom, 16)
         .onAppear(perform: reload)
+        .onChange(of: engine.status) { reload() }
     }
 
     private var visible: [Term] {

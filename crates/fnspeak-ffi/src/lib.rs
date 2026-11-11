@@ -373,7 +373,7 @@ impl FnSpeakEngine {
 
     /// Transcribe and clean a clip of 16 kHz mono f32 samples.
     pub fn dictate(&self, audio: Vec<f32>, context: Context) -> Result<Dictation, FnSpeakError> {
-        let mut p = self.pipeline.lock().unwrap();
+        let mut p = self.pipeline.lock().unwrap_or_else(|e| e.into_inner());
         p.dictate(&audio, &context.into()).map(Dictation::from).map_err(dictation_err)
     }
 
@@ -381,8 +381,8 @@ impl FnSpeakEngine {
     /// `push_audio` and end it with `finish_dictation` or `cancel_dictation`.
     /// Replaces a dictation that was never finished.
     pub fn begin_dictation(&self, context: Context) -> Result<(), FnSpeakError> {
-        let session = self.pipeline.lock().unwrap().begin_dictation(&context.into()).map_err(dictation_err)?;
-        *self.dictation.lock().unwrap() = Some(session);
+        let session = self.pipeline.lock().unwrap_or_else(|e| e.into_inner()).begin_dictation(&context.into()).map_err(dictation_err)?;
+        *self.dictation.lock().unwrap_or_else(|e| e.into_inner()) = Some(session);
         Ok(())
     }
 
@@ -391,28 +391,28 @@ impl FnSpeakEngine {
     /// dictation is running.
     pub fn push_audio(&self, samples: Vec<f32>) -> Result<(), FnSpeakError> {
         // Always the dictation slot before the pipeline, like finish.
-        let mut slot = self.dictation.lock().unwrap();
+        let mut slot = self.dictation.lock().unwrap_or_else(|e| e.into_inner());
         let Some(session) = slot.as_mut() else { return Ok(()) };
-        let mut p = self.pipeline.lock().unwrap();
+        let mut p = self.pipeline.lock().unwrap_or_else(|e| e.into_inner());
         session.push(&mut p, &samples).map_err(dictation_err)
     }
 
     /// Transcribe the rest of the running dictation and clean it up.
     pub fn finish_dictation(&self) -> Result<Dictation, FnSpeakError> {
-        let session = self.dictation.lock().unwrap().take();
+        let session = self.dictation.lock().unwrap_or_else(|e| e.into_inner()).take();
         let session = session.ok_or_else(|| FnSpeakError::Dictation("no dictation is running".into()))?;
-        let mut p = self.pipeline.lock().unwrap();
+        let mut p = self.pipeline.lock().unwrap_or_else(|e| e.into_inner());
         session.finish(&mut p).map(Dictation::from).map_err(dictation_err)
     }
 
     /// Throw away the running dictation, if any.
     pub fn cancel_dictation(&self) {
-        self.dictation.lock().unwrap().take();
+        self.dictation.lock().unwrap_or_else(|e| e.into_inner()).take();
     }
 
     pub fn configure_cleanup(&self, mode: Mode, local: Option<LocalModel>, cloud: Option<CloudConfig>) -> Result<(), FnSpeakError> {
         let cleaner = build_cleaner(mode.into(), local.as_ref(), cloud.as_ref())?;
-        let mut p = self.pipeline.lock().unwrap();
+        let mut p = self.pipeline.lock().unwrap_or_else(|e| e.into_inner());
         p.mode = mode.into();
         p.set_cleaner(cleaner);
         Ok(())
@@ -421,7 +421,7 @@ impl FnSpeakEngine {
     /// Let "send it" / "send that" at the end of a dictation set
     /// `press_enter`. Off by default: in a chat app it sends the message.
     pub fn set_send_command(&self, enabled: bool) {
-        self.pipeline.lock().unwrap().send_command = enabled;
+        self.pipeline.lock().unwrap_or_else(|e| e.into_inner()).send_command = enabled;
     }
 
     /// Let go of the speech model and stop the cleanup servers, before the
@@ -430,7 +430,7 @@ impl FnSpeakEngine {
     /// whisper.cpp treats as a crash. Waits a few seconds for a dictation in
     /// progress, then gives up.
     pub fn shutdown(&self) {
-        *self.dictation.lock().unwrap() = None;
+        *self.dictation.lock().unwrap_or_else(|e| e.into_inner()) = None;
         for _ in 0..60 {
             if let Ok(mut p) = self.pipeline.try_lock() {
                 p.set_cleaner(None);
@@ -443,27 +443,27 @@ impl FnSpeakEngine {
 
     pub fn set_speech_engine(&self, speech: SpeechEngine) -> Result<(), FnSpeakError> {
         let stt = build_stt(&speech)?;
-        self.pipeline.lock().unwrap().set_stt(stt);
+        self.pipeline.lock().unwrap_or_else(|e| e.into_inner()).set_stt(stt);
         Ok(())
     }
 
     pub fn add_terms(&self, source: TermSource, terms: Vec<String>) -> Result<u32, FnSpeakError> {
-        let mut p = self.pipeline.lock().unwrap();
+        let mut p = self.pipeline.lock().unwrap_or_else(|e| e.into_inner());
         p.vocab.add_terms(source.into(), terms).map(|n| n as u32).map_err(storage_err)
     }
 
     /// Replace every term from a source, e.g. after re-reading contacts.
     pub fn replace_terms(&self, source: TermSource, terms: Vec<String>) -> Result<u32, FnSpeakError> {
-        let mut p = self.pipeline.lock().unwrap();
+        let mut p = self.pipeline.lock().unwrap_or_else(|e| e.into_inner());
         p.vocab.replace_source(source.into(), terms).map(|n| n as u32).map_err(storage_err)
     }
 
     pub fn remove_term(&self, term: String) -> Result<bool, FnSpeakError> {
-        self.pipeline.lock().unwrap().vocab.remove_term(&term).map_err(storage_err)
+        self.pipeline.lock().unwrap_or_else(|e| e.into_inner()).vocab.remove_term(&term).map_err(storage_err)
     }
 
     pub fn terms(&self) -> Result<Vec<Term>, FnSpeakError> {
-        let p = self.pipeline.lock().unwrap();
+        let p = self.pipeline.lock().unwrap_or_else(|e| e.into_inner());
         let terms = p.vocab.terms(None).map_err(storage_err)?;
         Ok(terms
             .into_iter()
@@ -477,32 +477,32 @@ impl FnSpeakEngine {
 
     /// The user edited inserted text: learn the corrected spelling.
     pub fn record_correction(&self, heard: String, corrected: String) -> Result<(), FnSpeakError> {
-        self.pipeline.lock().unwrap().vocab.record_correction(&heard, &corrected).map(|_| ()).map_err(storage_err)
+        self.pipeline.lock().unwrap_or_else(|e| e.into_inner()).vocab.record_correction(&heard, &corrected).map(|_| ()).map_err(storage_err)
     }
 
     /// The user edited a dictation after it was inserted. `inserted` is what
     /// FnSpeak typed, `final_text` the same region of the field now. Returns
     /// corrections that start applying because of this edit.
     pub fn learn_from_edit(&self, inserted: String, final_text: String) -> Result<Vec<LearnedCorrection>, FnSpeakError> {
-        let mut p = self.pipeline.lock().unwrap();
+        let mut p = self.pipeline.lock().unwrap_or_else(|e| e.into_inner());
         let learned = p.vocab.learn_from_edit(&inserted, &final_text).map_err(storage_err)?;
         Ok(learned.into_iter().map(|c| LearnedCorrection { heard: c.heard, corrected: c.corrected }).collect())
     }
 
     /// Undo something `learn_from_edit` learned.
     pub fn forget_correction(&self, heard: String, corrected: String) -> Result<bool, FnSpeakError> {
-        self.pipeline.lock().unwrap().vocab.forget_correction(&heard, &corrected).map_err(storage_err)
+        self.pipeline.lock().unwrap_or_else(|e| e.into_inner()).vocab.forget_correction(&heard, &corrected).map_err(storage_err)
     }
 
     /// Raw transcript of the most recent dictation, for the swap-to-raw shortcut.
     pub fn last_raw(&self) -> Option<String> {
-        let p = self.pipeline.lock().unwrap();
+        let p = self.pipeline.lock().unwrap_or_else(|e| e.into_inner());
         p.history.as_ref().and_then(|h| h.last().ok().flatten()).map(|e| e.raw)
     }
 
     /// Past dictations, newest first, optionally only those containing `query`.
     pub fn history(&self, query: Option<String>, limit: u32) -> Result<Vec<HistoryEntry>, FnSpeakError> {
-        let p = self.pipeline.lock().unwrap();
+        let p = self.pipeline.lock().unwrap_or_else(|e| e.into_inner());
         let Some(h) = &p.history else { return Ok(Vec::new()) };
         let entries = h.search(query.as_deref().unwrap_or(""), limit as usize).map_err(storage_err)?;
         Ok(entries
@@ -512,7 +512,7 @@ impl FnSpeakEngine {
     }
 
     pub fn delete_history_entry(&self, id: i64) -> Result<bool, FnSpeakError> {
-        let p = self.pipeline.lock().unwrap();
+        let p = self.pipeline.lock().unwrap_or_else(|e| e.into_inner());
         match &p.history {
             Some(h) => h.delete(id).map_err(storage_err),
             None => Ok(false),
@@ -521,7 +521,7 @@ impl FnSpeakEngine {
 
     /// Totals over the kept history; the `recent_` fields count from `since` (Unix seconds).
     pub fn history_stats(&self, since: i64) -> Result<HistoryStats, FnSpeakError> {
-        let p = self.pipeline.lock().unwrap();
+        let p = self.pipeline.lock().unwrap_or_else(|e| e.into_inner());
         let s = match &p.history {
             Some(h) => h.stats(since).map_err(storage_err)?,
             None => Default::default(),
@@ -536,7 +536,7 @@ impl FnSpeakEngine {
     }
 
     pub fn purge_history(&self, older_than_days: u32) -> Result<u32, FnSpeakError> {
-        let p = self.pipeline.lock().unwrap();
+        let p = self.pipeline.lock().unwrap_or_else(|e| e.into_inner());
         let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
         match &p.history {
             Some(h) => h.purge_older_than(now, older_than_days).map(|n| n as u32).map_err(storage_err),
@@ -614,7 +614,7 @@ fn snippet_record(s: snippets::Snippet, shadowed: bool) -> Snippet {
 
 impl FnSpeakEngine {
     fn with_snippets<T>(&self, work: impl FnOnce(&mut SnippetStore) -> Result<T, SnippetError>) -> Result<T, FnSpeakError> {
-        let mut p = self.pipeline.lock().unwrap();
+        let mut p = self.pipeline.lock().unwrap_or_else(|e| e.into_inner());
         let store = p.snippets.as_mut().ok_or_else(|| FnSpeakError::Storage("Snippets are unavailable.".into()))?;
         work(store).map_err(storage_err)
     }
@@ -948,7 +948,7 @@ impl FnSpeakEngine {
 
     /// Start recording a meeting. Fails if one is already being recorded.
     pub fn start_meeting(&self, title: String, calendar_event_id: Option<String>, participants: Vec<String>) -> Result<Meeting, FnSpeakError> {
-        let mut current = self.meeting.lock().unwrap();
+        let mut current = self.meeting.lock().unwrap_or_else(|e| e.into_inner());
         if current.is_some() {
             return Err(FnSpeakError::Meeting("a meeting is already being recorded".into()));
         }
@@ -962,7 +962,7 @@ impl FnSpeakEngine {
     /// Queue 16 kHz mono f32 samples from one source. Cheap enough for an
     /// audio callback; does nothing when no meeting is being recorded.
     pub fn feed_meeting_audio(&self, source: AudioSource, samples: Vec<f32>) {
-        if let Some(session) = self.meeting.lock().unwrap().as_ref() {
+        if let Some(session) = self.meeting.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
             session.feed(source.into(), samples);
         }
     }
@@ -971,7 +971,7 @@ impl FnSpeakEngine {
     /// until done. If summarizing fails the transcript is still saved and
     /// the meeting stays in Processing; retry with `summarize_meeting`.
     pub fn finish_meeting(&self) -> Result<Meeting, FnSpeakError> {
-        let session = self.meeting.lock().unwrap().take().ok_or_else(|| FnSpeakError::Meeting("no meeting is being recorded".into()))?;
+        let session = self.meeting.lock().unwrap_or_else(|e| e.into_inner()).take().ok_or_else(|| FnSpeakError::Meeting("no meeting is being recorded".into()))?;
         let id = session.meeting_id();
         session.finish();
         self.store().finish_meeting(id).map_err(storage_err)?;
@@ -983,7 +983,7 @@ impl FnSpeakEngine {
     pub fn summarize_meeting(&self, id: i64) -> Result<Meeting, FnSpeakError> {
         let meeting = self.store().meeting(id).map_err(storage_err)?.ok_or_else(|| FnSpeakError::Meeting(format!("no meeting {id}")))?.0;
         let (llm, vocabulary) = {
-            let p = self.pipeline.lock().unwrap();
+            let p = self.pipeline.lock().unwrap_or_else(|e| e.into_inner());
             (p.llm(), p.vocab.relevant_terms(&vocab_context(&meeting), &[], SUMMARY_VOCAB).unwrap_or_default())
         };
         summary::summarize_meeting(&self.notes, llm.as_deref(), &vocabulary, id)
@@ -1005,7 +1005,7 @@ impl FnSpeakEngine {
     /// Delete a meeting and its transcript; notes taken in it are kept.
     /// Refuses the meeting being recorded.
     pub fn delete_meeting(&self, id: i64) -> Result<bool, FnSpeakError> {
-        if self.meeting.lock().unwrap().as_ref().is_some_and(|s| s.meeting_id() == id) {
+        if self.meeting.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|s| s.meeting_id() == id) {
             return Err(FnSpeakError::Meeting("finish the meeting before deleting it".into()));
         }
         self.store().delete_meeting(id).map_err(storage_err)
@@ -1054,7 +1054,7 @@ impl FnSpeakEngine {
 
     fn note_draft(&self, note: NoteInput) -> notes::NoteDraft {
         let title = if note.title.trim().is_empty() {
-            let llm = self.pipeline.lock().unwrap().llm();
+            let llm = self.pipeline.lock().unwrap_or_else(|e| e.into_inner()).llm();
             summary::title_note(llm.as_deref(), &note.body_md)
         } else {
             note.title
@@ -1173,6 +1173,15 @@ pub fn set_log_sink(sink: Box<dyn LogSink>) {
     let logger: &'static SinkLogger = Box::leak(Box::new(SinkLogger(Arc::from(sink))));
     if log::set_logger(logger).is_ok() {
         log::set_max_level(log::LevelFilter::Debug);
+        // A panic in the core is otherwise only on stderr, which nobody sees
+        // in an app. Put where it happened in the log; the message itself is
+        // left out, since it can quote what was dictated.
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let place = info.location().map(|l| format!("{}:{}", l.file(), l.line())).unwrap_or_else(|| "unknown".into());
+            log::error!("the core panicked at {place}");
+            previous(info);
+        }));
     }
 }
 
@@ -1235,7 +1244,7 @@ impl FnSpeakEngine {
     /// synced copy. Refuses the meeting being recorded.
     pub fn put_synced_meeting(&self, id: Option<i64>, meeting: SyncedMeeting) -> Result<Meeting, FnSpeakError> {
         if let Some(id) = id {
-            if self.meeting.lock().unwrap().as_ref().is_some_and(|s| s.meeting_id() == id) {
+            if self.meeting.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|s| s.meeting_id() == id) {
                 return Err(FnSpeakError::Meeting("this meeting is being recorded".into()));
             }
         }

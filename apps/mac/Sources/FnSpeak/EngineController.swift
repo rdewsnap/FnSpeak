@@ -183,7 +183,7 @@ final class EngineController: ObservableObject {
     func terms(completion: @escaping ([Term]) -> Void) {
         guard let engine else { return completion([]) }
         queue.async {
-            let terms = (try? engine.terms()) ?? []
+            let terms = Self.logged("reading the vocabulary") { try engine.terms() } ?? []
             DispatchQueue.main.async { completion(terms) }
         }
     }
@@ -198,7 +198,7 @@ final class EngineController: ObservableObject {
     func snippets(completion: @escaping ([Snippet]) -> Void) {
         guard let engine else { return completion([]) }
         queue.async {
-            let all = (try? engine.snippets()) ?? []
+            let all = Self.logged("reading snippets") { try engine.snippets() } ?? []
             DispatchQueue.main.async { completion(all) }
         }
     }
@@ -255,6 +255,17 @@ final class EngineController: ObservableObject {
         }
     }
 
+    /// Run a call into the core; a failure is logged and comes back as nil,
+    /// so an empty list in the UI always has an explanation in the log.
+    private static func logged<T>(_ what: String, _ work: () throws -> T) -> T? {
+        do {
+            return try work()
+        } catch {
+            Log.error("Failed \(what): \(MeetingController.message(for: error))")
+            return nil
+        }
+    }
+
     // MARK: - History
 
     /// Past dictations, newest first; only those containing `query` if given.
@@ -262,7 +273,7 @@ final class EngineController: ObservableObject {
         guard let engine else { return completion([]) }
         let query = query.trimmingCharacters(in: .whitespaces)
         queue.async {
-            let entries = (try? engine.history(query: query.isEmpty ? nil : query, limit: UInt32(limit))) ?? []
+            let entries = Self.logged("reading history") { try engine.history(query: query.isEmpty ? nil : query, limit: UInt32(limit)) } ?? []
             DispatchQueue.main.async { completion(entries) }
         }
     }
@@ -272,7 +283,7 @@ final class EngineController: ObservableObject {
         guard let engine else { return completion(nil) }
         let since = Int64(Date().timeIntervalSince1970) - Int64(days) * 86_400
         queue.async {
-            let stats = try? engine.historyStats(since: since)
+            let stats = Self.logged("reading history totals") { try engine.historyStats(since: since) }
             DispatchQueue.main.async { completion(stats) }
         }
     }
