@@ -24,6 +24,7 @@ enum Command {
 /// Phrase, command, and whether it has to start its own sentence or clause
 /// (after punctuation, or as the whole dictation). That keeps "add a new
 /// line" or "can you send it" as text.
+// Keep the phrases the same as `COMMAND_PHRASES` in fnspeak-server's snippets.rs.
 const PHRASES: &[(&str, Command, bool)] = &[
     ("scratch that", Command::ScratchThat, false),
     ("new paragraph", Command::NewParagraph, true),

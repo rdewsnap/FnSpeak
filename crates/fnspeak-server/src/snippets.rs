@@ -18,6 +18,7 @@ use crate::AppState;
 const MAX_TRIGGER_CHARS: usize = 60;
 const MAX_TEXT_CHARS: usize = 4000;
 /// The app's spoken commands. A trigger can't be one of them.
+/// Keep this the same as `PHRASES` in fnspeak-core's commands.rs.
 const COMMAND_PHRASES: &[&str] = &["scratch that", "new paragraph", "new line", "send it", "send that"];
 
 const COLS: &str = "s.id, s.team_id, t.name, s.phrase, s.body, u.email, s.added_by, s.created_at, s.updated_at, m.role";
