@@ -21,13 +21,18 @@ A few things grew out of using it every day:
 - **Your AI tools can read your notes.** There's a small MCP server in the app bundle, so Claude, Cursor or whatever you use can search your notes and meetings. Read-only, local, no network.
 - **Integrations.** Apple Notes, a signed webhook, meeting summaries written back to the calendar event, Shortcuts actions and `fnspeak://` links.
 - **Snippets.** Save a phrase like "my calendar link" with the text it stands for, and saying it types the text. Share one with your team from its menu.
+- **History.** Everything you've dictated is in the app's window, searchable, with what the speech model heard next to what got typed. Text only, on your Mac, deleted after 30 days unless you change that.
 - **Your clipboard is left alone.** Pasting the dictation saves and restores whatever you had copied, and tells clipboard managers to ignore it.
 
 If the cleanup model is slow, missing or makes something up, you get the rule-cleaned text instead. You never lose a dictation.
 
 ## Install
 
-There's no signed release yet, so you build it. Apple Silicon, Rust (rustup), Xcode 16 and CMake:
+Grab the dmg from [Releases](https://github.com/rdewsnap/FnSpeak/releases/latest), drag FnSpeak to Applications and open it. It's signed and notarized. You need an Apple Silicon Mac on macOS 14 or later.
+
+First launch asks for microphone and Accessibility access, picks a cleanup mode based on your hardware, and downloads the speech model (about 550 MB, plus 2.5 GB if you want cleanup to run locally). After that nothing needs the network.
+
+To build it yourself you need Rust (rustup), Xcode 16 and CMake:
 
 ```bash
 scripts/fetch-models.sh         # Whisper, Parakeet and a 4B cleanup model, about 3.7 GB
@@ -36,7 +41,7 @@ LLAMA_SERVER=build/llama-server scripts/build-mac.sh
 open build/FnSpeak.app
 ```
 
-Homebrew's llama.cpp currently fails to compile its Metal shaders on macOS 15, which is why the second script builds a pinned version. First launch asks for microphone and Accessibility access and picks a cleanup mode based on your hardware.
+Homebrew's llama.cpp currently fails to compile its Metal shaders on macOS 15, which is why the second script builds a pinned version.
 
 If Fn opens the emoji picker, set System Settings → Keyboard → "Press 🌐 key to" → Do Nothing.
 

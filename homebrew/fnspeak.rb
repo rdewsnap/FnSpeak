@@ -1,9 +1,9 @@
 # Template for the future rdewsnap/homebrew-fnspeak tap (Casks/fnspeak.rb).
-# After each release, set `version` and replace :no_check with the dmg's
+# After each release, set `version` and `sha256` to the dmg's
 # sha256 from the release job summary (or the SHA256SUMS release asset).
 cask "fnspeak" do
-  version "0.1.0"
-  sha256 :no_check
+  version "0.2.0"
+  sha256 "e07b4056c7366a0366bc9853b780291339baf691afa1b9a77638aef467f9f52d"
 
   url "https://github.com/rdewsnap/FnSpeak/releases/download/v#{version}/FnSpeak-#{version}.dmg"
   name "FnSpeak"
