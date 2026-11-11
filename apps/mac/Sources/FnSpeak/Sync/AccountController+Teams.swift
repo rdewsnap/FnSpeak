@@ -54,12 +54,25 @@ extension AccountController {
         }
     }
 
-    func updateTeamSnippet(_ snippet: Snippet, trigger: String, text: String) {
-        guard let teamId = snippet.teamId else { return }
+    /// Edit a team snippet. `completion` runs once the server has answered:
+    /// nil when it accepted the edit, otherwise the message to show. A failure
+    /// still goes through `run`, so a rejected token signs out as usual.
+    func updateTeamSnippet(_ snippet: Snippet, trigger: String, text: String, completion: @escaping (String?) -> Void = { _ in }) {
+        guard let teamId = snippet.teamId else { return completion("This snippet isn't on a team.") }
+        guard client != nil else {
+            run { _ in }
+            return completion(error)
+        }
         run { client in
-            _ = try await client.updateTeamSnippet(id: snippet.id, team: teamId, trigger: trigger, text: text)
+            do {
+                _ = try await client.updateTeamSnippet(id: snippet.id, team: teamId, trigger: trigger, text: text)
+            } catch {
+                completion(error.localizedDescription)
+                throw error
+            }
             self.notice = "Updated \"\(trigger)\"."
             NotificationCenter.default.post(name: .accountChanged, object: self)
+            completion(nil)
         }
     }
 
