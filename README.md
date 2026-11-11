@@ -20,6 +20,7 @@ A few things grew out of using it every day:
 - **Meetings.** It records your mic and the call's audio, transcribes as you go, and when you stop you get a summary with decisions and action items. The audio isn't kept.
 - **Your AI tools can read your notes.** There's a small MCP server in the app bundle, so Claude, Cursor or whatever you use can search your notes and meetings. Read-only, local, no network.
 - **Integrations.** Apple Notes, a signed webhook, meeting summaries written back to the calendar event, Shortcuts actions and `fnspeak://` links.
+- **Snippets.** Save a phrase like "my calendar link" with the text it stands for, and saying it types the text. Share one with your team from its menu.
 - **Your clipboard is left alone.** Pasting the dictation saves and restores whatever you had copied, and tells clipboard managers to ignore it.
 
 If the cleanup model is slow, missing or makes something up, you get the rule-cleaned text instead. You never lose a dictation.
