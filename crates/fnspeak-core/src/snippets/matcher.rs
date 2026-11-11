@@ -28,7 +28,7 @@ pub fn find(text: &str, snippets: &[Snippet]) -> Vec<Match> {
         .filter(|(_, key)| !key.is_empty())
         .collect();
     // A stable sort keeps slice order among triggers of the same length.
-    keys.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+    keys.sort_by_key(|(_, key)| std::cmp::Reverse(key.len()));
 
     let mut matches = Vec::new();
     let mut i = 0;
