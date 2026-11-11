@@ -54,6 +54,11 @@ struct Args {
     compat_model: Option<String>,
     #[arg(long)]
     compat_url: Option<String>,
+    /// Also run the audio clips the way the app does: transcribed at pauses
+    /// while the audio comes in, so the row's latency is only what's left
+    /// to do once the speaker stops. Uses the last cleanup model given.
+    #[arg(long)]
+    live: bool,
     /// Write per-clip outputs here as JSONL.
     #[arg(long)]
     details: Option<PathBuf>,
@@ -213,6 +218,45 @@ fn main() -> Result<()> {
                 }));
             }
             rows.push(score.row(&label, true));
+        }
+    }
+
+    if args.live {
+        let spec = cleaners.last().expect("filter only is always there");
+        for engine in speech_engines(&args)? {
+            let cleaner = match spec.build() {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("skipping live {}: {e}", spec.label());
+                    continue;
+                }
+            };
+            let label = format!("{} live → {}", engine.name(), spec.label());
+            let mut vocab = VocabIndex::in_memory()?;
+            vocab.add_terms(Source::User, &vocab_terms)?;
+            let mut pipeline = Pipeline::new(engine, vocab, spec.mode());
+            pipeline.set_cleaner(cleaner);
+
+            let mut score = Score::default();
+            for clip in clips.iter() {
+                let Some(audio) = &clip.audio else { continue };
+                let samples = load_wav(&base.join(audio))?;
+                let mut session = pipeline.begin_dictation(&clip.context)?;
+                // A tenth of a second at a time, like the microphone tap.
+                for chunk in samples.chunks(SAMPLE_RATE as usize / 10) {
+                    session.push(&mut pipeline, chunk)?;
+                }
+                let r = session.finish(&mut pipeline)?;
+                score.add(clip, &r.text, r.timings.stt_ms, r.timings.cleanup_ms, r.fallback_reason.is_some());
+                details.push(serde_json::json!({
+                    "system": label, "id": clip.id, "raw": r.raw, "output": r.text,
+                    "reference": clip.reference, "fallback": r.fallback_reason,
+                    "after_release_ms": r.timings.total_ms, "while_talking_ms": r.timings.stt_live_ms,
+                }));
+            }
+            if score.clips > 0 {
+                rows.push(score.row(&label, true));
+            }
         }
     }
 

@@ -54,7 +54,7 @@ If Fn opens the emoji picker, set System Settings → Keyboard → "Press 🌐 k
 
 ## How it works
 
-Audio goes to Whisper (whisper.cpp) or Parakeet (sherpa-onnx, faster), with your vocabulary passed in as a prompt. A rule-based filter strips um/uh, `I-I`, `the the`. Misheard names get matched by sound against your vocabulary (`PG vector` → `pgvector`). Then a small language model handles the judgment calls: `like`, `you know`, restarts, and corrections that reach back a few sentences. Last, a guardrail rejects any rewrite that adds words you didn't say.
+Audio goes to Whisper (whisper.cpp) or Parakeet (sherpa-onnx, faster), with your vocabulary passed in as a prompt. A rule-based filter strips um/uh, `I-I`, `the the`. Misheard names get matched by sound against your vocabulary (`PG vector` → `pgvector`). Then a small language model handles the judgment calls: `like`, `you know`, restarts, and corrections that reach back a few sentences. Last, a guardrail rejects any rewrite that adds words you didn't say. A dictation that's already clean, with no fillers, corrections or lists in it, skips the model altogether, which is most of them and saves about half the wait.
 
 The cleanup model runs through llama.cpp as a sidecar on localhost. If your Mac can't run it comfortably you can point it at your own API key (Anthropic, Groq, anything OpenAI-compatible), or turn it off and just get the rule-based cleanup, which is instant. In cloud mode only text is sent, never audio, and dictations with no self-corrections go to a cheaper model. Locally you can do the same: drop a second, smaller GGUF into the models folder and pick it under Settings → Advanced → Fast model. FnSpeak also keeps the local model warm while idle so the first dictation after a break isn't slower.
 
@@ -66,7 +66,7 @@ The cleanup model runs through llama.cpp as a sidecar on localhost. If your Mac 
 cargo run -p fnspeak-bench -- --manifest bench/manifest.example.jsonl --vocab bench/vocab.example.txt
 ```
 
-Record clips as 16 kHz mono WAV, e.g. `ffmpeg -f avfoundation -i ":0" -ar 16000 -ac 1 bench/clips/vocab-01.wav`, and run with `--features whisper,parakeet` for the full pipeline. `--beam N` sets Whisper's beam size (1 is greedy), and the table reports STT and cleanup latency separately.
+Record clips as 16 kHz mono WAV, e.g. `ffmpeg -f avfoundation -i ":0" -ar 16000 -ac 1 bench/clips/vocab-01.wav`, and run with `--features whisper,parakeet` for the full pipeline. `--beam N` sets Whisper's beam size (1 is greedy), and the table reports STT and cleanup latency separately. Add `--live` to also run the clips the way the app does, transcribing at pauses while the audio comes in, so the latency shown is what's left after you let go of the key.
 
 I've also started fine-tuning smaller models so slower Macs can do cleanup locally. `training/` has the scripts; the data is all free datasets plus synthetic pairs, and your own recordings are never used. The 1.7B model is close to the 4B on my clips at about half the latency. Numbers in [training/RESULTS.md](training/RESULTS.md).
 
