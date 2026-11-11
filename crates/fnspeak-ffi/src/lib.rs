@@ -7,6 +7,7 @@ use fnspeak_core::context::Style;
 use fnspeak_core::history::History;
 use fnspeak_core::meeting::{self as live, MeetingSession, PipelineTranscriber, SegmentListener, VadConfig};
 use fnspeak_core::notes::{self, NotesStore};
+use fnspeak_core::snippets::{self, SnippetError, SnippetSource, SnippetStore};
 use fnspeak_core::stt::SttEngine;
 use fnspeak_core::summary;
 use fnspeak_core::tier::HardwareInfo;
@@ -176,6 +177,9 @@ pub struct Dictation {
     pub mode: Mode,
     pub cleaner: Option<String>,
     pub fallback_reason: Option<String>,
+    /// How many snippets were expanded in `insert`. The app doesn't learn
+    /// spellings from edits to such an insert.
+    pub expanded_snippets: u32,
     /// Speech-to-text after the recording ended, what the user waited for.
     pub stt_ms: u64,
     /// Speech-to-text that ran while still recording (sessions only).
@@ -194,6 +198,7 @@ impl From<DictationResult> for Dictation {
             mode: r.mode.into(),
             cleaner: r.cleaner,
             fallback_reason: r.fallback_reason,
+            expanded_snippets: r.expanded_snippets,
             stt_ms: r.timings.stt_ms,
             stt_live_ms: r.timings.stt_live_ms,
             cleanup_ms: r.timings.cleanup_ms,
@@ -303,6 +308,14 @@ impl FnSpeakEngine {
         notes.recover_interrupted().map_err(storage_err)?;
 
         let mut pipeline = Pipeline::new(build_stt(&config.speech)?, vocab, config.mode.into()).with_history(history);
+        // Snippets are optional: without the store, dictation just doesn't expand them.
+        pipeline.snippets = match SnippetStore::open(dir.join("snippets.db")) {
+            Ok(store) => Some(store),
+            Err(e) => {
+                eprintln!("fnspeak: snippets are off, the store wouldn't open: {e}");
+                None
+            }
+        };
         pipeline.set_cleaner(build_cleaner(config.mode.into(), config.local.as_ref(), config.cloud.as_ref())?);
         Ok(Arc::new(FnSpeakEngine {
             pipeline: Arc::new(Mutex::new(pipeline)),
@@ -460,6 +473,109 @@ impl FnSpeakEngine {
  * create_note and update_note with an empty title) block for as long as
  * the model takes; call them off the main thread.
  */
+
+/// A trigger phrase and the text it expands to.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct Snippet {
+    pub id: String,
+    pub trigger: String,
+    pub text: String,
+    /// Pulled from a team rather than the user's own.
+    pub team: bool,
+    pub team_id: Option<String>,
+    pub team_name: Option<String>,
+    pub can_edit: bool,
+    /// A team snippet that doesn't fire because the user has their own
+    /// snippet with the same trigger.
+    pub shadowed: bool,
+}
+
+/// A team snippet as the server sent it.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct TeamSnippetInput {
+    pub id: String,
+    pub trigger: String,
+    pub text: String,
+    pub team_id: String,
+    pub team_name: String,
+    pub can_edit: bool,
+    pub updated_at: i64,
+}
+
+fn snippet_record(s: snippets::Snippet, shadowed: bool) -> Snippet {
+    Snippet {
+        id: s.id,
+        trigger: s.trigger,
+        text: s.text,
+        team: s.source == SnippetSource::Team,
+        team_id: s.team_id,
+        team_name: s.team_name,
+        can_edit: s.can_edit,
+        shadowed,
+    }
+}
+
+impl FnSpeakEngine {
+    fn with_snippets<T>(&self, work: impl FnOnce(&mut SnippetStore) -> Result<T, SnippetError>) -> Result<T, FnSpeakError> {
+        let mut p = self.pipeline.lock().unwrap();
+        let store = p.snippets.as_mut().ok_or_else(|| FnSpeakError::Storage("Snippets are unavailable.".into()))?;
+        work(store).map_err(storage_err)
+    }
+}
+
+#[uniffi::export]
+impl FnSpeakEngine {
+    /// Every snippet, the user's own first.
+    pub fn snippets(&self) -> Result<Vec<Snippet>, FnSpeakError> {
+        self.with_snippets(|store| {
+            let all = store.list()?;
+            let mine: std::collections::HashSet<String> =
+                all.iter().filter(|s| s.source == SnippetSource::Personal).map(|s| s.trigger_key.clone()).collect();
+            Ok(all
+                .into_iter()
+                .map(|s| {
+                    let shadowed = s.source == SnippetSource::Team && mine.contains(&s.trigger_key);
+                    snippet_record(s, shadowed)
+                })
+                .collect())
+        })
+    }
+
+    pub fn add_snippet(&self, trigger: String, text: String) -> Result<Snippet, FnSpeakError> {
+        self.with_snippets(|store| store.add(&trigger, &text)).map(|s| snippet_record(s, false))
+    }
+
+    pub fn update_snippet(&self, id: String, trigger: String, text: String) -> Result<Snippet, FnSpeakError> {
+        self.with_snippets(|store| store.update(&id, &trigger, &text)).map(|s| snippet_record(s, false))
+    }
+
+    pub fn remove_snippet(&self, id: String) -> Result<bool, FnSpeakError> {
+        self.with_snippets(|store| store.remove(&id))
+    }
+
+    /// Replace every team snippet with what the server has now.
+    pub fn replace_team_snippets(&self, snippets: Vec<TeamSnippetInput>) -> Result<u32, FnSpeakError> {
+        let snippets = snippets
+            .into_iter()
+            .map(|s| snippets::TeamSnippet {
+                id: s.id,
+                trigger: s.trigger,
+                text: s.text,
+                team_id: s.team_id,
+                team_name: s.team_name,
+                can_edit: s.can_edit,
+                updated_at: s.updated_at,
+            })
+            .collect();
+        self.with_snippets(|store| store.replace_team(snippets)).map(|n| n as u32)
+    }
+
+    /// Why `trigger` can't be used for a personal snippet, or `None` if it
+    /// can. `ignoring_id` is the snippet being edited.
+    pub fn validate_snippet_trigger(&self, trigger: String, ignoring_id: Option<String>) -> Option<String> {
+        self.with_snippets(|store| store.validate_trigger(&trigger, ignoring_id.as_deref())).err().map(|e| e.to_string())
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum NoteSource {
