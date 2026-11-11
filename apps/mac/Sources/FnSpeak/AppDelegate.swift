@@ -57,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.onIdleClick = { [weak self] in self?.notes.newNote() }
         setUpActions()
         AccountController.shared.engine = engine
+        ModelDownloader.shared.onReady = { [weak self] item in self?.modelArrived(item) }
 
         if prefs.onboarded {
             begin()
@@ -162,6 +163,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             endLiveDictation()
             overlay.show(.error("Couldn't start the microphone"))
             return false
+        }
+    }
+
+    /// A model finished downloading: start using it if it's what was missing.
+    private func modelArrived(_ item: ModelDownloader.Item) {
+        guard started else { return }
+        switch item {
+        case .whisper, .parakeet:
+            if !engine.isReady { engine.load() }
+        case .cleanup:
+            if prefs.mode == "local" {
+                if engine.isReady { engine.reconfigureCleanup() } else if engine.status != .loading { engine.load() }
+            }
         }
     }
 

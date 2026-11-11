@@ -10,6 +10,7 @@ struct CleanupTab: View {
     @State private var testResult: CloudConnectionTest.Outcome?
     @State private var keptWords: [String] = []
     @AppStorage(ModelLocator.cleanupModelKey) private var cleanupModel = ""
+    @ObservedObject private var downloader = ModelDownloader.shared
     @ObservedObject private var account = AccountController.shared
 
     var body: some View {
@@ -35,7 +36,9 @@ struct CleanupTab: View {
             if prefs.mode == "local" {
                 Section("Local model") {
                     let models = ModelLocator.cleanupModelCandidates
-                    if models.count > 1 {
+                    if models.isEmpty {
+                        ModelDownloadRow(item: .cleanup, note: "Runs on this Mac.")
+                    } else if models.count > 1 {
                         Picker("Model", selection: $cleanupModel) {
                             Text("Automatic (\(ModelLocator.automaticCleanupModelName))").tag("")
                             ForEach(models, id: \.lastPathComponent) { Text($0.lastPathComponent).tag($0.lastPathComponent) }

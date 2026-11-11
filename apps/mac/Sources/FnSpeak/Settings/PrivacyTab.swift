@@ -24,7 +24,7 @@ struct PrivacyTab: View {
                     fact("lock.fill", "Raw is on", "Nothing is cleaned up and nothing is sent anywhere.")
                 }
                 fact("person.crop.circle", "Contacts, calendar and projects", "Names are read on this Mac and kept in a local list. They only leave with a cloud request, and only when you say them.")
-                fact("chart.bar.xaxis", "Analytics", "None. No tracking, telemetry or crash reports. The only network requests are cloud cleanup, if you turn it on, and the connection test button.")
+                fact("chart.bar.xaxis", "Analytics", "None. No tracking, telemetry or crash reports. The only network requests are cloud cleanup, if you turn it on, the connection test button, sync if you sign in, and a model download or update check when you click the button for one.")
             }
 
             Section("History") {

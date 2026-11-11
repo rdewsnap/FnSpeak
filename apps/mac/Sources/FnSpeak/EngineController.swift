@@ -48,14 +48,23 @@ final class EngineController: ObservableObject {
                     DispatchQueue.main.async {
                         self.engine = engine
                         self.status = .ready
-                        self.cleanupWarning = "Cleanup model unavailable (\(error.localizedDescription)). Using filter only."
+                        self.cleanupWarning = Self.cleanupWarning(for: error)
                     }
                     return
                 }
-                Log.error("Engine failed to load: \(error.localizedDescription)")
-                DispatchQueue.main.async { self.status = .failed(error.localizedDescription) }
+                let message = MeetingController.message(for: error)
+                Log.error("Engine failed to load: \(message)")
+                DispatchQueue.main.async { self.status = .failed(message) }
             }
         }
+    }
+
+    /// One line for Home and the menu when cleanup had to fall back.
+    private static func cleanupWarning(for error: Error) -> String {
+        if ModelLocator.cleanupModel == nil, Preferences.shared.mode == "local" {
+            return "Local cleanup needs its model. Using the instant filter until it's downloaded."
+        }
+        return "The cleanup model didn't start (\(MeetingController.message(for: error))). Using the instant filter."
     }
 
     /// Free the models and stop the cleanup servers. Called once, as the app
@@ -79,7 +88,7 @@ final class EngineController: ObservableObject {
             } catch {
                 try? engine.configureCleanup(mode: .filterOnly, local: nil, cloud: nil)
                 DispatchQueue.main.async {
-                    self.cleanupWarning = "Cleanup model unavailable (\(error.localizedDescription)). Using filter only."
+                    self.cleanupWarning = Self.cleanupWarning(for: error)
                 }
             }
         }
@@ -371,7 +380,7 @@ final class EngineController: ObservableObject {
         var errorDescription: String? {
             switch self {
             case .missingModel(let name):
-                return "No \(name) model found in \(ModelLocator.modelsDirectory.path). Run scripts/fetch-models.sh."
+                return "The \(name) speech model isn't downloaded yet."
             }
         }
     }

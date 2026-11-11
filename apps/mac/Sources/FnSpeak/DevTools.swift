@@ -9,6 +9,10 @@ import SwiftUI
 ///   FNSPEAK_SELFTEST=clip.wav     with the above: also run that 16 kHz mono
 ///                                 WAV through the loaded engine and write the
 ///                                 result to selftest.txt
+///   FNSPEAK_DOWNLOAD=whisper      with the above: download that model first,
+///                                 the way the Download button would
+///   FNSPEAK_DATA_DIR=/some/dir    use this instead of Application Support
+///                                 (see ModelLocator), to leave real data alone
 enum DevTools {
     static var snapshotDirectory: URL? {
         ProcessInfo.processInfo.environment["FNSPEAK_SNAPSHOTS"].map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -17,8 +21,12 @@ enum DevTools {
     static func run(engine: EngineController, indexer: PersonalIndexer, into directory: URL) {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         NSApp.setActivationPolicy(.regular)
-        engine.load()
-        waitForEngine(engine) {
+        download(into: directory) {
+          let loadStarted = Date()
+          engine.load()
+          waitForEngine(engine) {
+            let loadMs = Int(Date().timeIntervalSince(loadStarted) * 1000)
+            try? "engine \(engine.status) after \(loadMs) ms\n".write(to: directory.appendingPathComponent("load.txt"), atomically: true, encoding: .utf8)
             selfTest(engine: engine, directory: directory) {
                 let controller = MainWindowController(engine: engine, indexer: indexer, actions: MainWindowActions())
                 controller.window?.setContentSize(NSSize(width: 940, height: 680))
@@ -28,10 +36,57 @@ enum DevTools {
                     for tab in SettingsTab.allCases { shots.append((tab, appearance)) }
                 }
                 capture(shots[...], controller: controller, directory: directory) {
-                    NSApp.terminate(nil)
+                    onboarding(engine: engine, directory: directory) { NSApp.terminate(nil) }
                 }
             }
+          }
         }
+    }
+
+    /// Download the model named in FNSPEAK_DOWNLOAD, if any, then carry on.
+    private static func download(into directory: URL, then work: @escaping () -> Void) {
+        guard let name = ProcessInfo.processInfo.environment["FNSPEAK_DOWNLOAD"],
+              let item = ModelDownloader.Item(rawValue: name) else { return work() }
+        let started = Date()
+        ModelDownloader.shared.download(item)
+        func poll() {
+            let state = ModelDownloader.shared.state(item)
+            let waiting: Bool
+            switch state {
+            case .downloading, .unpacking: waiting = true
+            case .idle, .failed: waiting = false
+            }
+            if waiting { return DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: poll) }
+            let seconds = Int(Date().timeIntervalSince(started))
+            try? "\(name): \(state), present \(item.isPresent), \(seconds) s\n"
+                .write(to: directory.appendingPathComponent("download.txt"), atomically: true, encoding: .utf8)
+            work()
+        }
+        poll()
+    }
+
+    /// Each onboarding step, in its own window.
+    private static func onboarding(engine: EngineController, directory: URL, done: @escaping () -> Void) {
+        func shoot(_ step: Int) {
+            guard step < 5 else { return done() }
+            let view = OnboardingView(engine: engine, hardware: detectHardware(), prepare: { _ in }, onDone: {}, startAt: step)
+            let window = NSWindow(contentViewController: NSHostingController(rootView: view))
+            window.styleMask = [.titled, .closable]
+            window.isReleasedWhenClosed = false
+            window.appearance = NSAppearance(named: .aqua)
+            window.backgroundColor = .windowBackgroundColor
+            window.makeKeyAndOrderFront(nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                if let content = window.contentView, let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+                    content.cacheDisplay(in: content.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?
+                        .write(to: directory.appendingPathComponent("onboarding-\(step).png"))
+                }
+                window.close()
+                shoot(step + 1)
+            }
+        }
+        shoot(0)
     }
 
     private static func waitForEngine(_ engine: EngineController, then work: @escaping () -> Void) {

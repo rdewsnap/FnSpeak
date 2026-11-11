@@ -5,6 +5,7 @@ struct AdvancedTab: View {
     @ObservedObject var prefs = Preferences.shared
     @ObservedObject var engine: EngineController
 
+    @ObservedObject private var downloader = ModelDownloader.shared
     @State private var hardware = detectHardware()
     @State private var exportNotice: String?
     @AppStorage(ModelLocator.fastModelKey) private var fastModel = ""
@@ -17,8 +18,16 @@ struct AdvancedTab: View {
                     Text("Parakeet (faster)").tag("parakeet")
                 }
                 .onChange(of: prefs.speechEngine) { engine.load() }
-                LabeledContent("Whisper model", value: ModelLocator.whisperModel?.lastPathComponent ?? "Not found")
-                LabeledContent("Parakeet model", value: ModelLocator.parakeetModel?.lastPathComponent ?? "Not found")
+                if let model = ModelLocator.whisperModel {
+                    LabeledContent("Whisper model", value: model.lastPathComponent)
+                } else {
+                    ModelDownloadRow(item: .whisper)
+                }
+                if let model = ModelLocator.parakeetModel {
+                    LabeledContent("Parakeet model", value: model.lastPathComponent)
+                } else {
+                    ModelDownloadRow(item: .parakeet, note: "About four times faster, but it can't use your vocabulary while listening.")
+                }
                 HStack {
                     Button("Show models folder") {
                         try? FileManager.default.createDirectory(at: ModelLocator.modelsDirectory, withIntermediateDirectories: true)

@@ -8,6 +8,7 @@ struct HomeView: View {
     @ObservedObject var engine: EngineController
     let actions: MainWindowActions
 
+    @ObservedObject private var downloader = ModelDownloader.shared
     @State private var stats: HistoryStats?
     @State private var recent: [HistoryEntry] = []
     @State private var micGranted = AudioRecorder.hasPermission
@@ -70,7 +71,7 @@ struct HomeView: View {
         if prefs.paused { return "Paused" }
         switch engine.status {
         case .loading: return "Loading the speech model…"
-        case .failed: return "Dictation isn't working yet"
+        case .failed: return missingModels.isEmpty ? "Dictation isn't working yet" : "Waiting for the speech model"
         case .ready:
             let speech = prefs.speechEngine == "parakeet" ? "Parakeet" : "Whisper"
             let mode = engine.cleanupWarning == nil ? prefs.mode : "filterOnly"
@@ -81,8 +82,34 @@ struct HomeView: View {
 
     // MARK: - Problems
 
+    /// Models this setup needs that aren't on disk yet.
+    private var missingModels: [(item: ModelDownloader.Item, note: String)] {
+        _ = downloader.revision
+        var missing: [(ModelDownloader.Item, String)] = []
+        if prefs.speechEngine == "parakeet" {
+            if !ModelDownloader.Item.parakeet.isPresent { missing.append((.parakeet, "Needed to hear you.")) }
+        } else if !ModelDownloader.Item.whisper.isPresent {
+            missing.append((.whisper, "Needed to hear you."))
+        }
+        if prefs.mode == "local", !ModelDownloader.Item.cleanup.isPresent {
+            missing.append((.cleanup, "Needed for local cleanup."))
+        }
+        return missing
+    }
+
     @ViewBuilder private var problems: some View {
         let items = problemItems
+        let missing = missingModels
+        if !missing.isEmpty {
+            Card(padding: 14) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(missing.count == 1 ? "One download to go" : "Two downloads to go").fontWeight(.medium)
+                    ForEach(missing, id: \.item) { ModelDownloadRow(item: $0.item, note: $0.note) }
+                    Text("Models run on this Mac. They're downloaded once and nothing is sent back.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            }
+        }
         if !items.isEmpty {
             VStack(spacing: 8) {
                 ForEach(items) { item in
@@ -125,11 +152,11 @@ struct HomeView: View {
                                  detail: "It's how FnSpeak types into other apps and sees which field you're in.",
                                  button: "Open Settings") { Self.openPrivacyPane("Privacy_Accessibility") })
         }
-        if case .failed(let message) = engine.status {
+        if case .failed(let message) = engine.status, missingModels.isEmpty {
             items.append(Problem(id: "engine", symbol: "exclamationmark.triangle.fill", tint: .red, title: "The speech model didn't load",
                                  detail: message, button: "Models…") { SettingsRouter.shared.tab = .advanced })
         }
-        if let warning = engine.cleanupWarning {
+        if let warning = engine.cleanupWarning, missingModels.isEmpty {
             items.append(Problem(id: "cleanup", symbol: "wand.and.stars", tint: .orange, title: "Cleanup fell back to the filter",
                                  detail: warning, button: "Cleanup…") { SettingsRouter.shared.tab = .cleanup })
         }
@@ -202,7 +229,7 @@ struct HomeView: View {
             }
             Card(padding: 6) {
                 if recent.isEmpty {
-                    Text(engine.isReady ? "Your dictations show up here. Try one now, in any text field." : "Loading…")
+                    Text(engine.status == .loading ? "Loading…" : "Your dictations show up here. Try one in any text field.")
                         .foregroundStyle(.secondary)
                         .padding(10)
                 } else {

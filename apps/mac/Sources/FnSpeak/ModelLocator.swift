@@ -5,6 +5,10 @@ import Foundation
 /// puts them there).
 enum ModelLocator {
     static var supportDirectory: URL {
+        // For development: keep a test run away from your real notes and history.
+        if let override = ProcessInfo.processInfo.environment["FNSPEAK_DATA_DIR"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("FnSpeak", isDirectory: true)
     }

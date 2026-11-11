@@ -1,8 +1,8 @@
 import AVFoundation
 import SwiftUI
 
-/// First run: permissions, the cleanup mode picked from the hardware check, a
-/// try-it box, then the hotkey.
+/// First run: permissions, the cleanup mode picked from the hardware check,
+/// the model downloads if any are needed, a try-it box, then the hotkey.
 struct OnboardingView: View {
     @ObservedObject var prefs = Preferences.shared
     @ObservedObject var engine: EngineController
@@ -11,14 +11,17 @@ struct OnboardingView: View {
     /// engine and hotkey have to be running for it to work.
     let prepare: (String) -> Void
     let onDone: () -> Void
+    /// The step to open on; only the snapshot tool starts anywhere but the first.
+    var startAt = 0
 
     private enum Step: Int, CaseIterable {
-        case permissions, cleanup, tryIt, hotkey
+        case permissions, cleanup, models, tryIt, hotkey
 
         var title: String {
             switch self {
             case .permissions: return "Welcome to FnSpeak"
             case .cleanup: return "How should it clean up?"
+            case .models: return "Get the models"
             case .tryIt: return "Try it"
             case .hotkey: return "Pick your hotkey"
             }
@@ -30,6 +33,9 @@ struct OnboardingView: View {
     @State private var axGranted = ContextReader.requestAccessibility(prompt: false)
     @State private var choice = "filterOnly"
     @State private var practice = ""
+    /// The models listed on the download step.
+    @State private var shownModels: [ModelDownloader.Item] = []
+    @ObservedObject private var downloader = ModelDownloader.shared
     @FocusState private var practiceFocused: Bool
 
     private let poll = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -42,6 +48,7 @@ struct OnboardingView: View {
                 switch step {
                 case .permissions: permissions
                 case .cleanup: cleanup
+                case .models: models
                 case .tryIt: tryIt
                 case .hotkey: hotkey
                 }
@@ -53,7 +60,10 @@ struct OnboardingView: View {
         }
         .padding(24)
         .frame(width: 520, height: 440)
-        .onAppear { choice = EngineController.name(of: hardware.recommendedMode) }
+        .onAppear {
+            choice = EngineController.name(of: hardware.recommendedMode)
+            if let start = Step(rawValue: startAt) { step = start }
+        }
         .onReceive(poll) { _ in
             // Permissions are granted in System Settings, so keep checking.
             micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -95,11 +105,54 @@ struct OnboardingView: View {
             }
             .pickerStyle(.radioGroup)
             .labelsHidden()
+            .onChange(of: choice) { shownModels = [] }
             if choice == "cloud" {
                 Text("Add an API key in Settings → Cleanup to turn this on. Until then FnSpeak uses Filter only.")
                     .font(.callout).foregroundStyle(.secondary)
             }
             Text("You can change this any time in Settings.").font(.callout).foregroundStyle(.secondary)
+        }
+    }
+
+    /// What still has to be downloaded for the chosen setup.
+    private var neededModels: [(item: ModelDownloader.Item, note: String)] {
+        _ = downloader.revision
+        var needed: [(ModelDownloader.Item, String)] = []
+        if !ModelDownloader.Item.whisper.isPresent { needed.append((.whisper, Self.note(for: .whisper))) }
+        if choice == "local", !ModelDownloader.Item.cleanup.isPresent { needed.append((.cleanup, Self.note(for: .cleanup))) }
+        return needed
+    }
+
+    private static func note(for item: ModelDownloader.Item) -> String {
+        switch item {
+        case .whisper: return "Turns your voice into text."
+        case .cleanup: return "Tidies what you said."
+        case .parakeet: return "A faster speech model."
+        }
+    }
+
+    private var speechModelReady: Bool {
+        _ = downloader.revision
+        return ModelDownloader.Item.whisper.isPresent || ModelDownloader.Item.parakeet.isPresent
+    }
+
+    private var models: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("FnSpeak runs its models on this Mac, so they're downloaded once, now. Your voice never leaves the machine.")
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(shownModels) { ModelDownloadRow(item: $0, note: Self.note(for: $0)) }
+                }
+                .padding(4)
+            }
+            if shownModels.contains(.cleanup), !ModelDownloader.Item.cleanup.isPresent {
+                Text("The cleanup model can finish in the background. Until it lands, FnSpeak uses the instant filter.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+        }
+        .onAppear {
+            // Fixed when the step opens, so a row stays (ticked) after its download finishes.
+            if shownModels.isEmpty { shownModels = neededModels.map(\.item) }
         }
     }
 
@@ -168,13 +221,19 @@ struct OnboardingView: View {
             } else {
                 Button("Continue") { move(by: 1) }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(step == .permissions && !micGranted)
+                    .disabled((step == .permissions && !micGranted) || (step == .models && !speechModelReady))
             }
         }
     }
 
     private func move(by delta: Int) {
-        if let next = Step(rawValue: step.rawValue + delta) { step = next }
+        guard var next = Step(rawValue: step.rawValue + delta) else { return }
+        // Nothing to download: skip that step in either direction.
+        if next == .models, shownModels.isEmpty, neededModels.isEmpty {
+            guard let beyond = Step(rawValue: next.rawValue + delta) else { return }
+            next = beyond
+        }
+        step = next
     }
 
     private func permissionRow(_ title: String, granted: Bool, denied: Bool, pane: String, request: @escaping () -> Void) -> some View {
