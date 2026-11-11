@@ -318,6 +318,7 @@ impl VocabIndex {
         if heard.is_empty() || corrected.is_empty() {
             return Ok(false);
         }
+        self.retarget_corrections(&heard, corrected)?;
         self.conn.execute(
             "INSERT INTO corrections (heard, corrected, last_seen) VALUES (?1, ?2, ?3)
              ON CONFLICT (heard, corrected) DO UPDATE SET count = count + 1, last_seen = excluded.last_seen",
@@ -344,8 +345,36 @@ impl VocabIndex {
         Ok(!is_trusted(count - 1, corrected))
     }
 
+    /// The user is respelling a word FnSpeak only wrote because of an earlier
+    /// correction ("whisper" became "Whispr", and now "Whispr" is being fixed
+    /// to "Wispr"). Point the earlier correction at the new spelling, or it
+    /// keeps producing the one the user just rejected.
+    fn retarget_corrections(&mut self, heard: &str, corrected: &str) -> Result<()> {
+        let rows: Vec<(String, String, i64)> = {
+            let mut stmt = self.conn.prepare_cached("SELECT heard, corrected, count FROM corrections")?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<std::result::Result<_, _>>()?;
+            rows
+        };
+        for (earlier, old, count) in rows {
+            if earlier == heard || old == corrected || learn::heard_key(&old) != heard {
+                continue;
+            }
+            self.conn.execute("DELETE FROM corrections WHERE heard = ?1 AND corrected = ?2", params![earlier, old])?;
+            self.conn.execute(
+                "INSERT INTO corrections (heard, corrected, count, last_seen) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT (heard, corrected) DO UPDATE SET count = count + excluded.count, last_seen = excluded.last_seen",
+                params![earlier, corrected, count, now()],
+            )?;
+            self.conn.execute(
+                "DELETE FROM terms WHERE normalized = ?1 AND source = ?2",
+                params![normalize(&old), Source::Learned.as_str()],
+            )?;
+        }
+        Ok(())
+    }
+
     /// Trusted corrections to apply to new dictations, best supported first.
-    /// Phrases made only of everyday words are left to the phonetic matcher,
+    /// Phrases made only of dictionary words are left to the phonetic matcher,
     /// which knows when not to touch them; a blanket "can" → "Kahn" would not.
     pub fn corrections(&self) -> Result<Vec<LearnedCorrection>> {
         let mut stmt =
@@ -354,7 +383,7 @@ impl VocabIndex {
             stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<std::result::Result<_, _>>()?;
         let mut out: Vec<LearnedCorrection> = Vec::new();
         for (heard, corrected, count) in rows {
-            if is_trusted(count, &corrected) && !learn::is_common_phrase(&heard) && !out.iter().any(|c| c.heard == heard) {
+            if is_trusted(count, &corrected) && !learn::is_ordinary_phrase(&heard) && !out.iter().any(|c| c.heard == heard) {
                 out.push(LearnedCorrection { heard, corrected });
             }
         }
@@ -643,6 +672,36 @@ mod tests {
         v.forget_correction("kin ju", "Kinju").unwrap();
         assert!(v.terms(None).unwrap().is_empty());
         assert!(v.corrections().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_second_fix_retargets_the_first() {
+        let mut v = VocabIndex::in_memory().unwrap();
+        // "kenju" was fixed to "Kenjoo", then "Kenjoo" itself to "Kinju".
+        assert!(v.record_correction("kenju", "Kenjoo").unwrap());
+        assert!(v.record_correction("Kenjoo", "Kinju").unwrap());
+        let rules = v.corrections().unwrap();
+        assert!(rules.contains(&LearnedCorrection { heard: "kenju".into(), corrected: "Kinju".into() }));
+        assert!(!rules.iter().any(|c| c.corrected == "Kenjoo"));
+        // The rejected spelling doesn't linger in the vocabulary either.
+        let terms: Vec<String> = v.terms(None).unwrap().into_iter().map(|t| t.text).collect();
+        assert!(terms.contains(&"Kinju".to_string()) && !terms.contains(&"Kenjoo".to_string()));
+    }
+
+    #[test]
+    fn a_dictionary_word_is_never_rewritten_wholesale() {
+        // Only where the system word list exists (macOS).
+        if !std::path::Path::new("/usr/share/dict/words").exists() {
+            return;
+        }
+        let mut v = VocabIndex::in_memory().unwrap();
+        v.record_correction("whisper", "Wispr").unwrap();
+        v.record_correction("kenju", "Kinju").unwrap();
+        let rules = v.corrections().unwrap();
+        assert!(!rules.iter().any(|c| c.heard == "whisper"));
+        assert!(rules.iter().any(|c| c.heard == "kenju"));
+        // The spelling is still learned, for the speech model and the phonetic matcher.
+        assert!(v.terms(None).unwrap().iter().any(|t| t.text == "Wispr"));
     }
 
     #[test]

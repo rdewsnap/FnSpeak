@@ -107,6 +107,19 @@ pub fn is_common_phrase(text: &str) -> bool {
     !words.is_empty() && words.iter().all(|&(s, e)| common_words().contains(text[s..e].to_lowercase().as_str()))
 }
 
+/// True when every word is one a dictionary would have: the short built-in
+/// list, plus the system word list where there is one (macOS ships it). Used
+/// to keep a correction from rewriting a real word every time it's said:
+/// fixing "whisper" to "Wispr" once shouldn't cost you the word "whisper".
+pub fn is_ordinary_phrase(text: &str) -> bool {
+    let words = word_spans(text);
+    !words.is_empty()
+        && words.iter().all(|&(s, e)| {
+            let word = text[s..e].to_lowercase();
+            common_words().contains(word.as_str()) || system_words().contains(word.as_str())
+        })
+}
+
 /// Capitalized or mixed-case words, the way names and products are written:
 /// "Kinju", "Priya Raman", "DoDSafeTransfer", "iOS".
 pub fn looks_like_name(text: &str) -> bool {
@@ -161,6 +174,19 @@ fn at_sentence_start(text: &str, pos: usize) -> bool {
 fn common_words() -> &'static HashSet<&'static str> {
     static WORDS: OnceLock<HashSet<&'static str>> = OnceLock::new();
     WORDS.get_or_init(|| include_str!("common_words.txt").split_whitespace().collect())
+}
+
+/// The lowercase entries of /usr/share/dict/words; empty where the file
+/// doesn't exist. Capitalized entries are names, which is what corrections
+/// are for, so they're left out.
+fn system_words() -> &'static HashSet<&'static str> {
+    static WORDS: OnceLock<HashSet<&'static str>> = OnceLock::new();
+    WORDS.get_or_init(|| {
+        let Ok(text) = std::fs::read_to_string("/usr/share/dict/words") else { return HashSet::new() };
+        // Read once and kept for the life of the process.
+        let text: &'static str = Box::leak(text.into_boxed_str());
+        text.lines().filter(|w| w.len() > 1 && w.chars().all(|c| c.is_ascii_lowercase())).collect()
+    })
 }
 
 struct Hunk {
