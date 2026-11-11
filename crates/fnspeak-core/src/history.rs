@@ -17,6 +17,18 @@ pub struct Entry {
     pub duration_ms: i64,
 }
 
+/// Totals over the dictations still in history.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Stats {
+    pub dictations: i64,
+    pub words: i64,
+    /// Time spent talking, in milliseconds.
+    pub spoken_ms: i64,
+    /// Dictations since the `since` passed to `stats`.
+    pub recent_dictations: i64,
+    pub recent_words: i64,
+}
+
 pub struct History {
     conn: Connection,
 }
@@ -61,6 +73,48 @@ impl History {
         )?;
         let rows = stmt.query_map([limit as i64], row_to_entry)?;
         rows.collect()
+    }
+
+    /// Newest first. With a query, only dictations whose text or raw
+    /// transcript contains it, ignoring case.
+    pub fn search(&self, query: &str, limit: usize) -> rusqlite::Result<Vec<Entry>> {
+        let query = query.trim();
+        if query.is_empty() {
+            return self.recent(limit);
+        }
+        let escaped = query.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let pattern = format!("%{escaped}%");
+        let mut stmt = self.conn.prepare(
+            "SELECT id, created_at, app_id, raw, text, mode, duration_ms FROM dictations
+             WHERE text LIKE ?1 ESCAPE '\\' OR raw LIKE ?1 ESCAPE '\\' ORDER BY id DESC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![pattern, limit as i64], row_to_entry)?;
+        rows.collect()
+    }
+
+    /// Delete one dictation. False when there was no such entry.
+    pub fn delete(&self, id: i64) -> rusqlite::Result<bool> {
+        Ok(self.conn.execute("DELETE FROM dictations WHERE id = ?1", [id])? > 0)
+    }
+
+    /// Totals over everything kept, and over what was dictated since `since`.
+    pub fn stats(&self, since: i64) -> rusqlite::Result<Stats> {
+        let mut stats = Stats::default();
+        let mut stmt = self.conn.prepare("SELECT created_at, text, duration_ms FROM dictations")?;
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            let created: i64 = row.get(0)?;
+            let text: String = row.get(1)?;
+            let words = text.split_whitespace().count() as i64;
+            stats.dictations += 1;
+            stats.words += words;
+            stats.spoken_ms += row.get::<_, i64>(2)?;
+            if created >= since {
+                stats.recent_dictations += 1;
+                stats.recent_words += words;
+            }
+        }
+        Ok(stats)
     }
 
     pub fn last(&self) -> rusqlite::Result<Option<Entry>> {
@@ -108,6 +162,29 @@ mod tests {
         assert_eq!(h.last().unwrap().unwrap().text, "OK");
         assert_eq!(h.recent(10).unwrap().len(), 2);
         assert_eq!(h.purge_older_than(1_000_000, 1).unwrap(), 1);
+        assert_eq!(h.recent(10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn search_delete_and_stats() {
+        let h = History::in_memory().unwrap();
+        let first = h.save(100, "com.apple.mail", "um ship it", "Ship it.", "local", 1_000).unwrap();
+        h.save(200, "com.tinyspeck.slackmacgap", "the build is 100% done", "The build is 100% done.", "local", 2_000).unwrap();
+
+        assert_eq!(h.search("SHIP", 10).unwrap().len(), 1);
+        // Found by the raw transcript too.
+        assert_eq!(h.search("um", 10).unwrap().len(), 1);
+        // % and _ are text, not wildcards.
+        assert_eq!(h.search("100%", 10).unwrap().len(), 1);
+        assert_eq!(h.search("1_0", 10).unwrap().len(), 0);
+        assert_eq!(h.search("  ", 10).unwrap().len(), 2);
+
+        let stats = h.stats(150).unwrap();
+        assert_eq!((stats.dictations, stats.words, stats.spoken_ms), (2, 7, 3_000));
+        assert_eq!((stats.recent_dictations, stats.recent_words), (1, 5));
+
+        assert!(h.delete(first).unwrap());
+        assert!(!h.delete(first).unwrap());
         assert_eq!(h.recent(10).unwrap().len(), 1);
     }
 }

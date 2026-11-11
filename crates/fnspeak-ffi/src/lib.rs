@@ -108,6 +108,30 @@ pub struct LocalModel {
     pub light_model_path: Option<String>,
 }
 
+/// One past dictation. Text only; audio is never kept.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct HistoryEntry {
+    pub id: i64,
+    /// Unix seconds.
+    pub created_at: i64,
+    pub app_id: String,
+    pub raw: String,
+    pub text: String,
+    /// How long the speaker talked, in milliseconds.
+    pub spoken_ms: i64,
+}
+
+/// Totals for the home screen.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct HistoryStats {
+    pub dictations: i64,
+    pub words: i64,
+    pub spoken_ms: i64,
+    /// Since the `since` passed to `history_stats`.
+    pub recent_dictations: i64,
+    pub recent_words: i64,
+}
+
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct EngineConfig {
     /// Where the vocabulary, history and notes databases live.
@@ -386,6 +410,23 @@ impl FnSpeakEngine {
         self.pipeline.lock().unwrap().send_command = enabled;
     }
 
+    /// Let go of the speech model and stop the cleanup servers, before the
+    /// app quits. Without this the servers outlive the app, and the speech
+    /// model's Metal buffers are still alive when the process exits, which
+    /// whisper.cpp treats as a crash. Waits a few seconds for a dictation in
+    /// progress, then gives up.
+    pub fn shutdown(&self) {
+        *self.dictation.lock().unwrap() = None;
+        for _ in 0..60 {
+            if let Ok(mut p) = self.pipeline.try_lock() {
+                p.set_cleaner(None);
+                p.set_stt(Box::new(fnspeak_core::stt::FixedTranscript(String::new())));
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
     pub fn set_speech_engine(&self, speech: SpeechEngine) -> Result<(), FnSpeakError> {
         let stt = build_stt(&speech)?;
         self.pipeline.lock().unwrap().set_stt(stt);
@@ -443,6 +484,41 @@ impl FnSpeakEngine {
     pub fn last_raw(&self) -> Option<String> {
         let p = self.pipeline.lock().unwrap();
         p.history.as_ref().and_then(|h| h.last().ok().flatten()).map(|e| e.raw)
+    }
+
+    /// Past dictations, newest first, optionally only those containing `query`.
+    pub fn history(&self, query: Option<String>, limit: u32) -> Result<Vec<HistoryEntry>, FnSpeakError> {
+        let p = self.pipeline.lock().unwrap();
+        let Some(h) = &p.history else { return Ok(Vec::new()) };
+        let entries = h.search(query.as_deref().unwrap_or(""), limit as usize).map_err(storage_err)?;
+        Ok(entries
+            .into_iter()
+            .map(|e| HistoryEntry { id: e.id, created_at: e.created_at, app_id: e.app_id, raw: e.raw, text: e.text, spoken_ms: e.duration_ms })
+            .collect())
+    }
+
+    pub fn delete_history_entry(&self, id: i64) -> Result<bool, FnSpeakError> {
+        let p = self.pipeline.lock().unwrap();
+        match &p.history {
+            Some(h) => h.delete(id).map_err(storage_err),
+            None => Ok(false),
+        }
+    }
+
+    /// Totals over the kept history; the `recent_` fields count from `since` (Unix seconds).
+    pub fn history_stats(&self, since: i64) -> Result<HistoryStats, FnSpeakError> {
+        let p = self.pipeline.lock().unwrap();
+        let s = match &p.history {
+            Some(h) => h.stats(since).map_err(storage_err)?,
+            None => Default::default(),
+        };
+        Ok(HistoryStats {
+            dictations: s.dictations,
+            words: s.words,
+            spoken_ms: s.spoken_ms,
+            recent_dictations: s.recent_dictations,
+            recent_words: s.recent_words,
+        })
     }
 
     pub fn purge_history(&self, older_than_days: u32) -> Result<u32, FnSpeakError> {

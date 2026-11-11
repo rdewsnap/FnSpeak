@@ -63,6 +63,7 @@ impl LlamaServer {
                 return Err(CleanupError::Load(format!("{what} not found at {}", path.display())));
             }
         }
+        reap_orphans(config);
         let port = free_port()?;
         let mut child = Command::new(&config.server_binary)
             .arg("--model")
@@ -105,6 +106,37 @@ impl Drop for LlamaServer {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+/// Stop servers left running by a copy of the app that crashed or was force
+/// quit. Each holds a few GB of memory, and nothing else will ever stop them.
+fn reap_orphans(config: &LocalConfig) {
+    let Ok(out) = Command::new("/bin/ps").args(["-axo", "pid=,ppid=,command="]).output() else { return };
+    let listing = String::from_utf8_lossy(&out.stdout);
+    for pid in orphans(&listing, &config.server_binary, config.model_path.parent()) {
+        // llama-server ignores a plain TERM while it's serving.
+        let _ = Command::new("/bin/kill").args(["-9", &pid.to_string()]).status();
+    }
+}
+
+/// From `ps -axo pid=,ppid=,command=`: llama-servers whose parent is gone
+/// (adopted by launchd) and that are ours, going by the binary they run or
+/// the folder their model is in.
+fn orphans(ps: &str, server_binary: &std::path::Path, models_dir: Option<&std::path::Path>) -> Vec<u32> {
+    // ps pads its columns, so compare with runs of spaces collapsed.
+    let squash = |p: &std::path::Path| p.to_string_lossy().split_whitespace().collect::<Vec<_>>().join(" ");
+    let binary = squash(server_binary);
+    let models = models_dir.map(squash).filter(|m| !m.is_empty());
+    ps.lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let pid: u32 = fields.next()?.parse().ok()?;
+            let ppid: u32 = fields.next()?.parse().ok()?;
+            let command = fields.collect::<Vec<_>>().join(" ");
+            let ours = command.starts_with(&binary) || models.as_ref().is_some_and(|m| command.contains(&format!("--model {m}/")));
+            (ppid == 1 && command.contains("llama-server") && ours).then_some(pid)
+        })
+        .collect()
 }
 
 fn free_port() -> Result<u16, CleanupError> {
@@ -208,5 +240,20 @@ mod tests {
         let started = Instant::now();
         drop(KeepWarm::spawn(client, Arc::new(Mutex::new(Instant::now()))));
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn finds_only_our_orphaned_servers() {
+        let ps = "\
+  101     1 /Applications/FnSpeak.app/Contents/Resources/llama-server --model /Users/me/Library/Application Support/FnSpeak/Models/a.gguf --port 1
+  102   900 /Applications/FnSpeak.app/Contents/Resources/llama-server --model /Users/me/Library/Application Support/FnSpeak/Models/a.gguf --port 2
+  103     1 /opt/homebrew/bin/llama-server --model /Users/me/other/b.gguf
+  104     1 /old/build/llama-server --model /Users/me/Library/Application Support/FnSpeak/Models/a.gguf
+  105     1 /usr/bin/something --model /Users/me/Library/Application Support/FnSpeak/Models/a.gguf
+";
+        let binary = std::path::Path::new("/Applications/FnSpeak.app/Contents/Resources/llama-server");
+        let models = std::path::Path::new("/Users/me/Library/Application Support/FnSpeak/Models");
+        // 102 still has a parent, 103 is someone else's, 105 isn't a llama-server.
+        assert_eq!(orphans(ps, binary, Some(models)), vec![101, 104]);
     }
 }
