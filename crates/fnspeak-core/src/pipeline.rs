@@ -5,7 +5,7 @@
 //! Every step after speech-to-text has a safe fallback, so a slow or failing
 //! cleanup model never loses a dictation: the user gets the filtered text.
 
-use crate::cleanup::{guardrail, trim_expanded_terms, Cleaner, CleanupMode, CleanupRequest, Llm};
+use crate::cleanup::{guardrail, needs_model, trim_expanded_terms, Cleaner, CleanupMode, CleanupRequest, Llm};
 use crate::commands::split_trailing;
 use crate::context::DictationContext;
 use crate::filter::filter;
@@ -26,13 +26,30 @@ const FRAME_SAMPLES: usize = SAMPLE_RATE as usize / 50;
 /// count as speech, and a quiet stretch inside a word is far shorter than
 /// a pause.
 const PAUSE_RMS: f32 = 0.008;
-/// This long a quiet run after speech is a pause between words, so the
-/// audio can be cut there without splitting one.
-const PAUSE_SAMPLES: usize = SAMPLE_RATE as usize * 400 / 1000;
+/// That level suits a voice close to the microphone. Someone further away,
+/// or trailing off at the end of a sentence, speaks below it, and their last
+/// words must not be taken for a pause. So the level actually used is a
+/// tenth of the loudest frame so far, between this floor and `PAUSE_RMS`.
+const PAUSE_RMS_FLOOR: f32 = 0.002;
+/// This long a quiet run after speech and the speaker may be done, so what's
+/// been said so far is transcribed ahead of time. If they let go without
+/// saying more, that transcript is the answer and nothing is left to wait
+/// for; if they carry on, it's thrown away.
+const AHEAD_SAMPLES: usize = SAMPLE_RATE as usize * 300 / 1000;
 /// Least speech (from its first loud frame to the pause) worth transcribing
 /// on its own. Shorter chunks give Whisper too little to go on, and it
 /// invents text from them.
 const MIN_CHUNK_SAMPLES: usize = SAMPLE_RATE as usize;
+/// A pause this long, after at least `CHUNK_SAMPLES` of speech, ends a chunk
+/// for good: what follows is transcribed separately. Chunks are kept long and
+/// only cut at real pauses, because each one is punctuated as if it were a
+/// whole utterance. Cutting at every breath turned one sentence into
+/// "It works. But, it hasn't been tested."
+const CHUNK_PAUSE_SAMPLES: usize = SAMPLE_RATE as usize * 700 / 1000;
+const CHUNK_SAMPLES: usize = SAMPLE_RATE as usize * 10;
+/// Past this a chunk ends at the next pause of any length, to stay inside
+/// the window Whisper handles quickly.
+const MAX_CHUNK_SAMPLES: usize = SAMPLE_RATE as usize * 18;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PipelineError {
@@ -75,6 +92,9 @@ pub struct DictationResult {
     /// How many snippets were expanded in `insert`.
     #[serde(default)]
     pub expanded_snippets: u32,
+    /// The cleanup model was left out because the text needed nothing.
+    #[serde(default)]
+    pub skipped_cleanup: bool,
     pub timings: Timings,
 }
 
@@ -156,9 +176,12 @@ impl Pipeline {
             audio: Vec::new(),
             cut: 0,
             scanned: 0,
+            peak: 0.0,
             speech_from: None,
             quiet_from: None,
             committed: String::new(),
+            ahead: None,
+            tried_ahead: false,
             live_stt: Duration::ZERO,
         })
     }
@@ -196,6 +219,7 @@ impl Pipeline {
             cleaner: None,
             fallback_reason: None,
             expanded_snippets: 0,
+            skipped_cleanup: false,
             timings: Timings::default(),
         };
         if raw.trim().is_empty() {
@@ -228,7 +252,14 @@ impl Pipeline {
         let said = snippets::find(&result.filtered, &active);
 
         let wants_model = matches!(self.mode, CleanupMode::Local | CleanupMode::Cloud);
+        // Already clean: the model would hand it back unchanged, a few
+        // hundred milliseconds later.
+        // If the filter took something out it can leave a stray comma behind
+        // ("Can you, um, send" → "Can you, send"), which the model tidies.
+        let untouched = filtered.split_whitespace().eq(spoken.split_whitespace());
+        let nothing_to_do = wants_model && untouched && !needs_model(&result.filtered, ctx.style(), &suggestions);
         match self.cleaner.as_mut() {
+            Some(_) if nothing_to_do => result.skipped_cleanup = true,
             Some(cleaner) if wants_model && !filtered.is_empty() => {
                 let mut vocabulary = self.vocab.relevant_terms(&ctx.searchable(), &suggestions, VOCAB_PER_DICTATION)?;
                 // Learned spellings in this dictation count as vocabulary, so
@@ -288,10 +319,11 @@ impl Pipeline {
     }
 }
 
-/// A dictation transcribed while it's being recorded. Whenever the speaker
-/// pauses after enough speech, the audio since the last pause is transcribed
-/// right away, so on release only the last stretch is left to do. Audio is
-/// only ever cut inside a pause, never mid-word.
+/// A dictation transcribed while it's being recorded. At each pause the audio
+/// so far is transcribed ahead of time, so if the speaker lets go there the
+/// text is already done. A long dictation is also split at its longer pauses,
+/// so on release only the last stretch is left. Audio is only ever cut inside
+/// a pause, never mid-word.
 pub struct DictationSession {
     ctx: DictationContext,
     hints: SttHints,
@@ -300,13 +332,26 @@ pub struct DictationSession {
     cut: usize,
     /// How far pause detection has looked.
     scanned: usize,
+    /// The loudest frame so far, which sets what counts as quiet.
+    peak: f32,
     /// First loud frame since `cut`.
     speech_from: Option<usize>,
     /// Start of the quiet run after that speech, if we're in one.
     quiet_from: Option<usize>,
-    /// What's been transcribed so far.
+    /// What's been transcribed so far, up to `cut`.
     committed: String,
+    /// A transcript of the audio from `cut` to the current pause. Dropped as
+    /// soon as the speaker says more.
+    ahead: Option<Ahead>,
+    /// The current pause has had its go at `ahead`, whether or not it worked.
+    tried_ahead: bool,
     live_stt: Duration,
+}
+
+struct Ahead {
+    /// Where in the audio the transcript stops, inside the pause.
+    end: usize,
+    text: String,
 }
 
 impl DictationSession {
@@ -317,34 +362,52 @@ impl DictationSession {
         while self.scanned + FRAME_SAMPLES <= self.audio.len() {
             let at = self.scanned;
             self.scanned += FRAME_SAMPLES;
-            if rms(&self.audio[at..self.scanned]) >= PAUSE_RMS {
+            let level = rms(&self.audio[at..self.scanned]);
+            self.peak = self.peak.max(level);
+            if level >= (self.peak / 10.0).clamp(PAUSE_RMS_FLOOR, PAUSE_RMS) {
                 self.speech_from.get_or_insert(at);
                 self.quiet_from = None;
+                // More speech: whatever was transcribed ahead is out of date.
+                self.ahead = None;
+                self.tried_ahead = false;
                 continue;
             }
             let Some(speech_from) = self.speech_from else { continue };
             let quiet_from = *self.quiet_from.get_or_insert(at);
-            if self.scanned - quiet_from >= PAUSE_SAMPLES && quiet_from - speech_from >= MIN_CHUNK_SAMPLES {
-                // Cut in the middle of the pause, leaving a little quiet on
-                // both sides of it.
-                self.commit(pipeline, quiet_from + (self.scanned - quiet_from) / 2)?;
+            let (quiet, speech) = (self.scanned - quiet_from, quiet_from - speech_from);
+            if speech < MIN_CHUNK_SAMPLES {
+                continue;
+            }
+            if !self.tried_ahead && quiet >= AHEAD_SAMPLES {
+                // Stop most of the way into the pause: the end of a word
+                // fades out below the quiet level, and it has to stay whole.
+                self.tried_ahead = true;
+                self.transcribe_ahead(pipeline, quiet_from + quiet * 2 / 3)?;
+            }
+            let long_enough = speech >= MAX_CHUNK_SAMPLES || (speech >= CHUNK_SAMPLES && quiet >= CHUNK_PAUSE_SAMPLES);
+            if long_enough {
+                self.commit();
             }
         }
         Ok(())
     }
 
-    /// Text transcribed so far, before cleanup.
+    /// Text transcribed and settled so far, before cleanup.
     pub fn committed(&self) -> &str {
         &self.committed
     }
 
     /// Transcribe what's left and run the result through the rest of the
     /// pipeline, exactly as `Pipeline::dictate` does.
-    pub fn finish(self, pipeline: &mut Pipeline) -> Result<DictationResult, PipelineError> {
+    pub fn finish(mut self, pipeline: &mut Pipeline) -> Result<DictationResult, PipelineError> {
         let started = Instant::now();
+        // Nothing was said after the pause `ahead` was made in, so it covers
+        // everything; otherwise the rest still has to be transcribed.
+        let done_ahead = self.ahead.is_some();
+        self.commit();
         let tail = &self.audio[self.cut..];
         let mut raw = self.committed.clone();
-        if !is_silent(tail) {
+        if !done_ahead && !is_silent(tail) {
             let text = pipeline.stt.transcribe_continuing(tail, &self.hints, &raw)?;
             join(&mut raw, &sanitize(&text, seconds(tail)));
         }
@@ -358,23 +421,31 @@ impl DictationSession {
         Ok(result)
     }
 
-    /// Transcribe the audio from the last cut up to `end`.
-    fn commit(&mut self, pipeline: &mut Pipeline, end: usize) -> Result<(), PipelineError> {
-        self.speech_from = None;
-        self.quiet_from = None;
+    /// Transcribe the audio from the last cut up to `end`, without settling
+    /// on it yet.
+    fn transcribe_ahead(&mut self, pipeline: &mut Pipeline, end: usize) -> Result<(), PipelineError> {
         let chunk = &self.audio[self.cut..end];
         if is_silent(chunk) {
-            self.cut = end;
+            self.ahead = Some(Ahead { end, text: String::new() });
             return Ok(());
         }
         let started = Instant::now();
         let text = pipeline.stt.transcribe_continuing(chunk, &self.hints, &self.committed);
         self.live_stt += started.elapsed();
-        // On failure the audio stays where it is, for `finish` to try again.
+        // On failure nothing is kept, and `finish` tries the audio again.
         let text = sanitize(&text?, seconds(chunk));
-        join(&mut self.committed, &text);
-        self.cut = end;
+        self.ahead = Some(Ahead { end, text });
         Ok(())
+    }
+
+    /// Settle on what was transcribed ahead: the next chunk starts after it.
+    fn commit(&mut self) {
+        let Some(ahead) = self.ahead.take() else { return };
+        join(&mut self.committed, &ahead.text);
+        self.cut = ahead.end;
+        self.speech_from = None;
+        self.quiet_from = None;
+        self.tried_ahead = false;
     }
 }
 
@@ -539,7 +610,7 @@ mod tests {
         assert_eq!(p.dictate(&speech(), &DictationContext::default()).unwrap().insert, "add a new line");
 
         // The model never sees the command.
-        let mut p = pipeline("Ship it Friday. New line.", CleanupMode::Cloud).with_cleaner(Box::new(Echo("Ship it Friday.")));
+        let mut p = pipeline("So ship it Friday. New line.", CleanupMode::Cloud).with_cleaner(Box::new(Echo("Ship it Friday.")));
         let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
         assert_eq!((r.insert.as_str(), r.cleaner.as_deref()), ("Ship it Friday.\n", Some("echo")));
 
@@ -623,15 +694,55 @@ mod tests {
     }
 
     #[test]
-    fn session_transcribes_at_pauses() {
+    fn session_splits_a_long_dictation_at_a_real_pause() {
         let (mut p, preceding) = chunked(vec!["Ship the build today.", "Then tell Sam."]);
         let mut s = p.begin_dictation(&DictationContext::default()).unwrap();
-        feed(&mut p, &mut s, &[tone(1.5), quiet(0.6)].concat());
+        feed(&mut p, &mut s, &[tone(10.5), quiet(0.8)].concat());
         assert_eq!(s.committed(), "Ship the build today.");
         feed(&mut p, &mut s, &tone(1.0));
         let r = s.finish(&mut p).unwrap();
         assert_eq!(r.raw, "Ship the build today. Then tell Sam.");
         assert_eq!(*preceding.lock().unwrap(), ["", "Ship the build today."]);
+    }
+
+    #[test]
+    fn session_is_done_ahead_of_time_when_nothing_follows_a_pause() {
+        let (mut p, preceding) = chunked(vec!["Ship the build today."]);
+        let mut s = p.begin_dictation(&DictationContext::default()).unwrap();
+        feed(&mut p, &mut s, &[tone(1.5), quiet(0.5)].concat());
+        // Transcribed during the pause, but not settled: more could follow.
+        assert_eq!(s.committed(), "");
+        assert_eq!(preceding.lock().unwrap().len(), 1);
+        let r = s.finish(&mut p).unwrap();
+        assert_eq!(r.raw, "Ship the build today.");
+        // Letting go cost no more speech-to-text.
+        assert_eq!(preceding.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn session_hears_a_quiet_ending() {
+        // Trailing off: the last words are far quieter than the first, but
+        // well above the room. They aren't a pause.
+        let normal: Vec<f32> = tone(1.5).iter().map(|s| s * 0.15).collect();
+        let soft: Vec<f32> = tone(1.0).iter().map(|s| s * 0.03).collect();
+        let (mut p, preceding) = chunked(vec!["It works, but", "It works, but it hasn't been tested."]);
+        let mut s = p.begin_dictation(&DictationContext::default()).unwrap();
+        feed(&mut p, &mut s, &[normal, quiet(0.4), soft, quiet(0.1)].concat());
+        let r = s.finish(&mut p).unwrap();
+        assert_eq!(r.raw, "It works, but it hasn't been tested.");
+        assert_eq!(preceding.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn session_keeps_a_short_dictation_in_one_piece() {
+        // A breath mid-sentence must not split it into two "sentences".
+        let (mut p, preceding) = chunked(vec!["It works.", "It works, but it hasn't been tested."]);
+        let mut s = p.begin_dictation(&DictationContext::default()).unwrap();
+        feed(&mut p, &mut s, &[tone(1.5), quiet(0.5), tone(1.5)].concat());
+        let r = s.finish(&mut p).unwrap();
+        assert_eq!(r.raw, "It works, but it hasn't been tested.");
+        // Both passes started from nothing: the whole dictation was redone.
+        assert_eq!(*preceding.lock().unwrap(), ["", ""]);
     }
 
     #[test]
@@ -714,13 +825,32 @@ mod tests {
 
     #[test]
     fn a_model_that_rewords_the_trigger_is_dropped() {
-        let p = pipeline("Grab a time on my calendar link, thanks.", CleanupMode::Cloud)
+        let p = pipeline("So grab a time on my calendar link, thanks.", CleanupMode::Cloud)
             .with_cleaner(Box::new(Echo("Grab a time on my calendar. Thanks.")));
         let mut p = with_snippet(p, "my calendar link", "https://cal.com/ryan");
         let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
         assert_eq!(r.cleaner, None);
         assert_eq!(r.fallback_reason.as_deref(), Some("cleanup changed a snippet trigger"));
-        assert_eq!(r.insert, "Grab a time on https://cal.com/ryan, thanks.");
+        assert_eq!(r.insert, "So grab a time on https://cal.com/ryan, thanks.");
+    }
+
+    #[test]
+    fn clean_text_never_reaches_the_model() {
+        // The echo would change the text if it were asked.
+        let mut p = pipeline("Are there vehicles?", CleanupMode::Cloud).with_cleaner(Box::new(Echo("Something else entirely.")));
+        let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
+        assert_eq!((r.text.as_str(), r.cleaner, r.fallback_reason), ("Are there vehicles?", None, None));
+        assert!(r.skipped_cleanup);
+
+        // So is anything the rule-based filter had to touch.
+        let mut p = pipeline("Can you, um, send me the deck?", CleanupMode::Cloud).with_cleaner(Box::new(Echo("Can you send me the deck?")));
+        let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
+        assert_eq!((r.text.as_str(), r.skipped_cleanup), ("Can you send me the deck?", false));
+
+        // A filler is the model's call.
+        let mut p = pipeline("I mean, are there vehicles?", CleanupMode::Cloud).with_cleaner(Box::new(Echo("Are there vehicles?")));
+        let r = p.dictate(&speech(), &DictationContext::default()).unwrap();
+        assert_eq!((r.text.as_str(), r.cleaner.as_deref(), r.skipped_cleanup), ("Are there vehicles?", Some("echo"), false));
     }
 
     #[test]

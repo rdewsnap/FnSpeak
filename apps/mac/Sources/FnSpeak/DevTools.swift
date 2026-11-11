@@ -126,7 +126,7 @@ enum DevTools {
             let ms = Int(Date().timeIntervalSince(started) * 1000)
             switch result {
             case .success(let d):
-                finish("ok in \(ms) ms (stt \(d.sttMs) ms, cleanup \(d.cleanupMs) ms, \(d.cleaner ?? "no model"))\nraw: \(d.raw)\ntext: \(d.text)\nwarning: \(engine.cleanupWarning ?? "none")\n")
+                finish("ok in \(ms) ms (stt \(d.sttMs) ms, cleanup \(d.cleanupMs) ms, \(d.cleanerLabel))\nraw: \(d.raw)\ntext: \(d.text)\nwarning: \(engine.cleanupWarning ?? "none")\n")
             case .failure(let error):
                 finish("failed in \(ms) ms: \(error.localizedDescription)\n")
             }

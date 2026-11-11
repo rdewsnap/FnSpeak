@@ -212,7 +212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.phase = .idle
             switch result {
             case .success(let dictation):
-                Log.info("Dictation ok: stt \(dictation.sttMs) ms after release (\(dictation.sttLiveMs) ms while talking), cleanup \(dictation.cleanupMs) ms (\(dictation.cleaner ?? "no model"))")
+                Log.info("Dictation ok: stt \(dictation.sttMs) ms after release (\(dictation.sttLiveMs) ms while talking), cleanup \(dictation.cleanupMs) ms (\(dictation.cleanerLabel))")
                 let send = dictation.pressEnter && self.prefs.allowSendCommand
                 guard !dictation.insert.isEmpty else {
                     // "Send it" on its own sends what's already typed.
@@ -467,7 +467,7 @@ extension AppDelegate: NSMenuDelegate {
             menu.addItem(withTitle: warning, action: nil, keyEquivalent: "")
         }
         if let last = engine.lastDictation {
-            let item = NSMenuItem(title: "Last: \(last.totalMs) ms (\(last.cleaner ?? "no model"))", action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: "Last: \(last.totalMs) ms (\(last.cleanerLabel))", action: nil, keyEquivalent: "")
             menu.addItem(item)
         }
         menu.addItem(.separator())

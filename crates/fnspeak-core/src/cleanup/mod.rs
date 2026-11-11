@@ -10,12 +10,14 @@ mod fnspeak;
 mod local;
 mod prompt;
 mod route;
+mod skip;
 
 pub use cloud::{AnthropicCleaner, OpenAiCompatCleaner};
 pub use fnspeak::FnSpeakCleaner;
 pub use local::{LlamaServer, LocalCleaner, LocalConfig};
 pub use prompt::{build_user_message, SYSTEM_PROMPT};
 pub use route::{needs_repair, RoutedCleaner};
+pub use skip::needs_model;
 
 use crate::context::DictationContext;
 use crate::vocab::Suggestion;

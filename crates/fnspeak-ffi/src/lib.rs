@@ -204,6 +204,8 @@ pub struct Dictation {
     /// How many snippets were expanded in `insert`. The app doesn't learn
     /// spellings from edits to such an insert.
     pub expanded_snippets: u32,
+    /// The text was already clean, so the cleanup model wasn't asked.
+    pub skipped_cleanup: bool,
     /// Speech-to-text after the recording ended, what the user waited for.
     pub stt_ms: u64,
     /// Speech-to-text that ran while still recording (sessions only).
@@ -223,6 +225,7 @@ impl From<DictationResult> for Dictation {
             cleaner: r.cleaner,
             fallback_reason: r.fallback_reason,
             expanded_snippets: r.expanded_snippets,
+            skipped_cleanup: r.skipped_cleanup,
             stt_ms: r.timings.stt_ms,
             stt_live_ms: r.timings.stt_live_ms,
             cleanup_ms: r.timings.cleanup_ms,

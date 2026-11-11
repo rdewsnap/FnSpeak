@@ -385,3 +385,11 @@ final class EngineController: ObservableObject {
         }
     }
 }
+
+extension Dictation {
+    /// What did the cleanup, for the log and the menu.
+    var cleanerLabel: String {
+        if let cleaner { return cleaner }
+        return skippedCleanup ? "nothing to clean up" : "no model"
+    }
+}
