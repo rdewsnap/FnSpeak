@@ -45,7 +45,9 @@
     display: inline-flex; align-items: center; justify-content: center; gap: 8px;
     font: 600 1rem/1.2 var(--sans); padding: 12px 22px; border-radius: 8px; cursor: pointer;
     border: 1px solid var(--ink); background: var(--ink); color: var(--paper); margin: 10px 0 4px; text-decoration: none;
+    min-height: 46px; vertical-align: middle;
   }
+  a.btn { display: flex; width: max-content; }
   .btn:hover { opacity: 0.9; }
   .btn:disabled { opacity: 0.55; cursor: default; }
   .btn.quiet { background: transparent; color: var(--ink); border-color: var(--rule); font-weight: 500; }
