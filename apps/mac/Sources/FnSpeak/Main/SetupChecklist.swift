@@ -32,8 +32,7 @@ struct SetupChecklist: View {
                 router.tab = .home
             },
             Step(id: "calendar", title: "Connect your calendar", done: upcoming.hasCalendarAccess) {
-                upcoming.connectCalendar()
-                router.tab = .meetings
+                router.tab = .integrations
             },
             Step(id: "mcp", title: "Connect an AI assistant", done: MCPSetup.isConnected) {
                 router.tab = .notes

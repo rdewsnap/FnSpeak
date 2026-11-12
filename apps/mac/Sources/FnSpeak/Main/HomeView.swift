@@ -10,6 +10,7 @@ struct HomeView: View {
 
     @ObservedObject private var downloader = ModelDownloader.shared
     @ObservedObject private var upcoming = UpcomingMeetings.shared
+    @AppStorage("calendarPromptHidden") private var calendarPromptHidden = false
     @State private var stats: HistoryStats?
     @State private var recent: [HistoryEntry] = []
     @State private var micGranted = Permission.microphone.state == .allowed
@@ -194,6 +195,23 @@ struct HomeView: View {
                     } else {
                         Button("Record", action: actions.startMeeting)
                     }
+                }
+            }
+        } else if !upcoming.hasCalendarAccess && !calendarPromptHidden {
+            Card(padding: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "calendar").foregroundStyle(.secondary).frame(width: 18)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("See your next meeting here").fontWeight(.medium)
+                        Text("Connect Google, Outlook or iCloud to get reminders and join links.")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Button("Connect a Calendar") { SettingsRouter.shared.tab = .integrations }
+                    Button { calendarPromptHidden = true } label: { Image(systemName: "xmark") }
+                        .buttonStyle(KitButtonStyle(kind: .quiet, size: .small))
+                        .help("Hide this. Calendars are under Connectors.")
+                        .accessibilityLabel("Hide")
                 }
             }
         }

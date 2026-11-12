@@ -28,6 +28,9 @@ struct Sidebar: View {
             Spacer(minLength: 12)
 
             VStack(alignment: .leading, spacing: 1) {
+                SidebarRow(title: SettingsTab.integrations.title, symbol: SettingsTab.integrations.symbol, selected: false, external: false) {
+                    router.tab = .integrations
+                }
                 SidebarRow(title: "Settings", symbol: "gearshape", selected: false, external: false) {
                     router.tab = router.settingsPage
                 }
