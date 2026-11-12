@@ -45,7 +45,7 @@ struct ConnectorsTab: View {
                          detail: "Reminders and join links for Outlook and Microsoft 365 meetings.")
             if !calendars.accounts(for: .other).isEmpty {
                 calendarCard(.other, icon: .app("com.apple.iCal"), name: "Apple Calendar",
-                             detail: "iCloud and the other calendars already on this Mac.")
+                             detail: "Reminders and join links for meetings on iCloud and the other calendars on this Mac.")
             }
             ConnectorCard(icon: .symbol("sparkles"), name: "AI assistants", tags: [],
                           detail: "Let Claude and other MCP clients search your notes and meetings. Runs on this Mac.") {
