@@ -188,6 +188,7 @@ pub async fn invite(
         )
         .await?;
     let team_name = state.db.query_one("SELECT name FROM teams WHERE id = $1", args![&team_id]).await?.text(0);
+    let invite_link = format!("{}/v1/invites/{token}", state.config.base_url);
     state
         .mailer
         .send(Mail {
@@ -201,9 +202,24 @@ pub async fn invite(
                 role.as_str(),
                 state.config.base_url,
             ),
+            html: Some(crate::mail::html(&crate::mail::Layout {
+                heading: &format!("Join {team_name} on FnSpeak"),
+                intro: &format!(
+                    "{} invited you to {team_name} as {} {}. You'll share the team's glossary and snippets, and anything teammates share with it.",
+                    user.email,
+                    if role == Role::Member { "a" } else { "an" },
+                    role.as_str()
+                ),
+                button: None,
+                copy: Some((
+                    &format!("Sign in to FnSpeak as {email}, then paste this invite link in Settings, Account:"),
+                    &invite_link,
+                )),
+                note: "The invite expires in 7 days. If you weren't expecting it, you can ignore this email.",
+            })),
         })
         .await
-        .map_err(|e| ApiError::Unavailable(format!("couldn't send email: {e}")))?;
+        .map_err(crate::mail::send_failed)?;
     Ok((
         StatusCode::CREATED,
         Json(json!({ "id": id, "team_id": team_id, "email": email, "role": role.as_str(), "expires_at": expires_at })),

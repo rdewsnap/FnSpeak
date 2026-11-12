@@ -7,6 +7,7 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod glossary;
+pub mod google;
 pub mod llm;
 pub mod mail;
 pub mod mcp;
@@ -53,6 +54,9 @@ pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/v1/auth/magic-link", post(auth::request_link))
         .route("/v1/auth/verify", get(auth::verify_page).post(auth::verify))
+        .route("/v1/auth/providers", get(google::providers))
+        .route("/v1/auth/google", get(google::start))
+        .route("/v1/auth/google/callback", get(google::callback))
         .route("/v1/me", get(auth::me))
         .route("/v1/tokens", get(auth::list_tokens).post(auth::create_token))
         .route("/v1/tokens/{id}", delete(auth::delete_token))

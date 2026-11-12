@@ -162,9 +162,16 @@ pub async fn request_link(
                 "Open this link to sign in to FnSpeak:\n\n{link}\n\nIt works once and expires in 15 minutes. \
                  If you didn't ask for it, ignore this email."
             ),
+            html: Some(crate::mail::html(&crate::mail::Layout {
+                heading: "Sign in to FnSpeak",
+                intro: "Here's your sign-in link. Open it on the Mac where you use FnSpeak.",
+                button: Some(("Sign in", &link)),
+                copy: Some(("Or copy this link and paste it into FnSpeak:", &link)),
+                note: "The link works once and expires in 15 minutes. If you didn't ask for it, you can ignore this email.",
+            })),
         })
         .await
-        .map_err(|e| ApiError::Unavailable(format!("couldn't send email: {e}")))?;
+        .map_err(crate::mail::send_failed)?;
     Ok((StatusCode::ACCEPTED, Json(json!({ "status": "sent" }))))
 }
 
@@ -198,7 +205,13 @@ pub async fn verify(
     if !state.limiter.allow(&format!("verify-ip:{ip}"), AUTH_REQUESTS_PER_IP, RATE_WINDOW) {
         return Err(ApiError::TooManyRequests);
     }
-    let hash = hash_token(&state.config.secret, req.token.trim());
+    // An emailed link's token, or the app's half of a Google sign-in.
+    let token = req.token.trim();
+    let hash = if token.starts_with(crate::google::VERIFIER_PREFIX) {
+        crate::google::claim_hash(&state.config.secret, token)
+    } else {
+        hash_token(&state.config.secret, token)
+    };
     let now = now_ms();
     let row = state
         .db

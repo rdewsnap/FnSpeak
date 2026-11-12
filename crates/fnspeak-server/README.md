@@ -42,6 +42,8 @@ docker compose -f deploy/docker-compose.yml logs -f server
 | `FNSPEAK_SMTP_USERNAME`, `FNSPEAK_SMTP_PASSWORD` | unset | |
 | `FNSPEAK_SMTP_FROM` | required with SMTP | |
 | `FNSPEAK_SMTP_SECURITY` | `starttls` | `starttls`, `tls` or `none` |
+| `FNSPEAK_GOOGLE_CLIENT_ID` | unset | A Google OAuth client ID (type: web application). Set it and the app offers "Continue with Google" next to the emailed link |
+| `FNSPEAK_GOOGLE_CLIENT_SECRET` | unset | Required with the client ID. In Google Cloud, allow the redirect URI `<FNSPEAK_BASE_URL>/v1/auth/google/callback` |
 | `FNSPEAK_LLM_API_KEY` | unset | Unset: hosted cleanup and summaries are off |
 | `FNSPEAK_LLM_PROVIDER` | `anthropic` | `anthropic` or `openai` (any OpenAI-compatible API) |
 | `FNSPEAK_LLM_BASE_URL` | `https://api.anthropic.com` | Required for `openai`, e.g. `https://api.groq.com/openai/v1` |

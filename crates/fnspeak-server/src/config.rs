@@ -20,6 +20,8 @@ pub struct Config {
     pub trust_proxy: bool,
     /// Upstream model for hosted cleanup and summaries; `None` disables them.
     pub llm: Option<LlmConfig>,
+    /// A Google OAuth client; `None` leaves sign-in to emailed links.
+    pub google: Option<GoogleConfig>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,6 +55,22 @@ impl std::fmt::Debug for LlmConfig {
             .field("summary_model", &self.summary_model)
             .field("reasoning_effort", &self.reasoning_effort)
             .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone)]
+pub struct GoogleConfig {
+    pub client_id: String,
+    pub client_secret: String,
+    /// Google's endpoints, replaceable in tests.
+    pub auth_url: String,
+    pub token_url: String,
+}
+
+// Hand-written so the client secret never lands in logs.
+impl std::fmt::Debug for GoogleConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GoogleConfig").field("client_id", &self.client_id).finish_non_exhaustive()
     }
 }
 
@@ -118,6 +136,16 @@ impl Config {
             }
             None => None,
         };
+        let google = match var("FNSPEAK_GOOGLE_CLIENT_ID") {
+            Some(client_id) => Some(GoogleConfig {
+                client_id,
+                client_secret: var("FNSPEAK_GOOGLE_CLIENT_SECRET")
+                    .context("FNSPEAK_GOOGLE_CLIENT_SECRET is required with FNSPEAK_GOOGLE_CLIENT_ID")?,
+                auth_url: "https://accounts.google.com/o/oauth2/v2/auth".into(),
+                token_url: "https://oauth2.googleapis.com/token".into(),
+            }),
+            None => None,
+        };
         Ok(Config {
             bind: var("FNSPEAK_BIND").unwrap_or_else(|| "0.0.0.0:8080".into()),
             database_url: var("FNSPEAK_DATABASE_URL").unwrap_or_else(|| "sqlite://fnspeak.db".into()),
@@ -127,6 +155,7 @@ impl Config {
             cors_origins,
             trust_proxy: var("FNSPEAK_TRUST_PROXY").is_some_and(|v| v == "1" || v == "true"),
             llm,
+            google,
         })
     }
 
@@ -142,6 +171,7 @@ impl Config {
             cors_origins: vec!["http://localhost:8080".into()],
             trust_proxy: false,
             llm: None,
+            google: None,
         }
     }
 }
