@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let directory = DevTools.snapshotDirectory {
             return DevTools.run(engine: engine, indexer: indexer, into: directory)
         }
+        Preferences.shared.applyAppearance()
         setUpStatusItem()
         applyPresentation()
         prefsObserver = prefs.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] in self?.applyPresentation() }

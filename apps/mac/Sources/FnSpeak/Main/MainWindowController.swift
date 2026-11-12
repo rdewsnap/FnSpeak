@@ -63,12 +63,15 @@ struct MainView: View {
         }
         .frame(minWidth: 940, minHeight: 560)
         .skinned()
-        // Notes and Meetings put buttons in the window's toolbar, which makes
-        // the title bar taller and moves the close, minimise and zoom buttons.
-        // An empty item keeps the toolbar there on every page, so they stay put.
+        // The toolbar is there on every page, so the title bar keeps one
+        // height and the close, minimise and zoom buttons stay put.
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
+            }
+            ToolbarItemGroup(placement: .primaryAction) {
+                AppearanceMenu()
+                AccountButton()
             }
         }
     }
@@ -95,6 +98,46 @@ struct MainView: View {
             .id(router.tab)
             .ignoresSafeArea()
         }
+    }
+}
+
+/// Light, dark or whatever the Mac is set to, from the top of the window.
+private struct AppearanceMenu: View {
+    @ObservedObject var prefs = Preferences.shared
+
+    private static let choices: [(value: String, label: String, symbol: String)] = [
+        ("system", "System", "circle.lefthalf.filled"),
+        ("light", "Light", "sun.max"),
+        ("dark", "Dark", "moon"),
+    ]
+
+    var body: some View {
+        Menu {
+            Picker("Appearance", selection: $prefs.appearance) {
+                ForEach(Self.choices, id: \.value) { choice in
+                    Label(choice.label, systemImage: choice.symbol).tag(choice.value)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            Image(systemName: Self.choices.first { $0.value == prefs.appearance }?.symbol ?? "circle.lefthalf.filled")
+        }
+        .help("Appearance")
+        .accessibilityLabel("Appearance")
+    }
+}
+
+/// Straight to the Account page in Settings.
+private struct AccountButton: View {
+    @ObservedObject var account = AccountController.shared
+
+    var body: some View {
+        Button { SettingsRouter.shared.tab = .account } label: {
+            Image(systemName: account.isSignedIn ? "person.crop.circle.fill" : "person.crop.circle")
+        }
+        .help(account.isSignedIn ? (account.email ?? "Account") : "Sign in")
+        .accessibilityLabel("Account")
     }
 }
 

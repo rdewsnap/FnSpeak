@@ -56,6 +56,10 @@ final class Preferences: ObservableObject {
 
     // MARK: General
 
+    /// `system`, `light` or `dark`.
+    @Published var appearance: String {
+        didSet { defaults.set(appearance, forKey: "appearance"); applyAppearance() }
+    }
     @Published var showInMenuBar: Bool { didSet { defaults.set(showInMenuBar, forKey: "showInMenuBar") } }
     @Published var showInDock: Bool { didSet { defaults.set(showInDock, forKey: "showInDock") } }
     @Published var soundsEnabled: Bool { didSet { defaults.set(soundsEnabled, forKey: "soundsEnabled") } }
@@ -107,6 +111,7 @@ final class Preferences: ObservableObject {
         readFocusedField = defaults.object(forKey: "readFocusedField") as? Bool ?? true
         categoryStyles = defaults.dictionary(forKey: "categoryStyles") as? [String: String] ?? [:]
         styleOverrides = defaults.dictionary(forKey: "styleOverrides") as? [String: String] ?? [:]
+        appearance = defaults.string(forKey: "appearance") ?? "system"
         showInMenuBar = defaults.object(forKey: "showInMenuBar") as? Bool ?? true
         showInDock = defaults.object(forKey: "showInDock") as? Bool ?? false
         soundsEnabled = defaults.object(forKey: "soundsEnabled") as? Bool ?? true
@@ -448,5 +453,16 @@ extension Preferences {
     var syncTeamSnippets: Bool {
         get { defaults.object(forKey: "syncTeamSnippets") as? Bool ?? true }
         set { objectWillChange.send(); defaults.set(newValue, forKey: "syncTeamSnippets") }
+    }
+}
+
+extension Preferences {
+    /// Put every window in the chosen look; `system` follows the Mac.
+    func applyAppearance() {
+        switch appearance {
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: NSApp.appearance = nil
+        }
     }
 }

@@ -64,7 +64,9 @@ enum DevTools {
                                 directory: URL, done: @escaping () -> Void) {
         guard let (tab, appearance) = shots.first else { return done() }
         let inSettings = SettingsTab.settings.contains(tab)
-        guard let window = inSettings ? windows.settings.window : windows.main.window, let view = window.contentView else { return done() }
+        // The frame around the content, so the title bar and its buttons are in the picture.
+        guard let window = inSettings ? windows.settings.window : windows.main.window,
+              let view = window.contentView?.superview ?? window.contentView else { return done() }
         window.appearance = NSAppearance(named: appearance)
         SettingsRouter.shared.tab = tab
         // Give SwiftUI a moment to lay the page out and load its data.
