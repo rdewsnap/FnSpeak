@@ -67,6 +67,16 @@ struct GeneralTab: View {
 
             KitSection(title: "Feedback") {
                 Toggle("Play a sound when dictation starts and stops", isOn: $prefs.soundsEnabled)
+                if prefs.soundsEnabled {
+                    soundPicker("When it starts", selection: $prefs.startSound)
+                    soundPicker("When it stops", selection: $prefs.stopSound)
+                    LabeledContent("Volume") {
+                        Slider(value: $prefs.soundVolume, in: 0.05...1) { editing in
+                            if !editing { Sounds.play(prefs.startSound) }
+                        }
+                        .frame(width: 180)
+                    }
+                }
             }
 
             KitSection(title: "Updates") {
@@ -104,5 +114,15 @@ struct GeneralTab: View {
                 launchAtLogin = LaunchAtLogin.isEnabled
             }
         )
+    }
+
+    /// A sound menu that plays each choice as it's picked.
+    private func soundPicker(_ title: String, selection: Binding<String>) -> some View {
+        let heard = Binding(get: { selection.wrappedValue }, set: { selection.wrappedValue = $0; Sounds.play($0) })
+        return KitPicker(title, selection: heard) {
+            ForEach(Sounds.choices, id: \.self) { Text($0).tag($0) }
+            Divider()
+            Text(Sounds.none).tag(Sounds.none)
+        }
     }
 }

@@ -59,6 +59,10 @@ final class Preferences: ObservableObject {
     @Published var showInMenuBar: Bool { didSet { defaults.set(showInMenuBar, forKey: "showInMenuBar") } }
     @Published var showInDock: Bool { didSet { defaults.set(showInDock, forKey: "showInDock") } }
     @Published var soundsEnabled: Bool { didSet { defaults.set(soundsEnabled, forKey: "soundsEnabled") } }
+    @Published var startSound: String { didSet { defaults.set(startSound, forKey: "startSound") } }
+    @Published var stopSound: String { didSet { defaults.set(stopSound, forKey: "stopSound") } }
+    /// 0 to 1. The sounds sit under whatever else is playing.
+    @Published var soundVolume: Double { didSet { defaults.set(soundVolume, forKey: "soundVolume") } }
     /// `bottom`, `top`, `cursor` or `hidden`.
     @Published var overlayPosition: String { didSet { defaults.set(overlayPosition, forKey: "overlayPosition") } }
     /// `small`, `medium` or `large`.
@@ -105,7 +109,10 @@ final class Preferences: ObservableObject {
         styleOverrides = defaults.dictionary(forKey: "styleOverrides") as? [String: String] ?? [:]
         showInMenuBar = defaults.object(forKey: "showInMenuBar") as? Bool ?? true
         showInDock = defaults.object(forKey: "showInDock") as? Bool ?? false
-        soundsEnabled = defaults.object(forKey: "soundsEnabled") as? Bool ?? false
+        soundsEnabled = defaults.object(forKey: "soundsEnabled") as? Bool ?? true
+        startSound = defaults.string(forKey: "startSound") ?? Sounds.defaultStart
+        stopSound = defaults.string(forKey: "stopSound") ?? Sounds.defaultStop
+        soundVolume = defaults.object(forKey: "soundVolume") as? Double ?? 0.35
         overlayPosition = defaults.string(forKey: "overlayPosition") ?? "bottom"
         overlaySize = defaults.string(forKey: "overlaySize") ?? "medium"
         showPillWhenIdle = defaults.object(forKey: "showPillWhenIdle") as? Bool ?? false
