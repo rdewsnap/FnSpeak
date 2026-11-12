@@ -39,15 +39,15 @@ struct ConnectorsTab: View {
 
     private var connectors: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
-            calendarCard(.google, name: "Google Calendar",
+            calendarCard(.google, icon: .logo("google-calendar"), name: "Google Calendar",
                          detail: "Reminders and join links for the meetings on your Google calendar.")
-            calendarCard(.outlook, name: "Outlook Calendar",
+            calendarCard(.outlook, icon: .logo("outlook"), name: "Outlook Calendar",
                          detail: "Reminders and join links for Outlook and Microsoft 365 meetings.")
             if !calendars.accounts(for: .other).isEmpty {
-                calendarCard(.other, name: "Apple Calendar",
+                calendarCard(.other, icon: .app("com.apple.iCal"), name: "Apple Calendar",
                              detail: "iCloud and the other calendars already on this Mac.")
             }
-            ConnectorCard(symbol: "sparkles", name: "AI assistants", tags: [],
+            ConnectorCard(icon: .symbol("sparkles"), name: "AI assistants", tags: [],
                           detail: "Let Claude and other MCP clients search your notes and meetings. Runs on this Mac.") {
                 if assistantConnected { ConnectedMark() }
                 Button(assistantConnected ? "Manage" : "Set up") { SettingsRouter.shared.tab = .notes }
@@ -59,10 +59,10 @@ struct ConnectorsTab: View {
         }
     }
 
-    private func calendarCard(_ service: CalendarAccount.Service, name: String, detail: String) -> some View {
+    private func calendarCard(_ service: CalendarAccount.Service, icon: ConnectorIcon, name: String, detail: String) -> some View {
         let accounts = calendars.accounts(for: service)
         let used = accounts.filter { !prefs.calendarIgnoredAccounts.contains($0.id) }
-        return ConnectorCard(symbol: "calendar", name: name, tags: accounts.map(\.label), detail: detail,
+        return ConnectorCard(icon: icon, name: name, tags: accounts.map(\.label), detail: detail,
                              note: note(for: service, connected: !accounts.isEmpty)) {
             if accounts.isEmpty {
                 Button("Connect") {
@@ -258,7 +258,7 @@ struct ConnectorsTab: View {
 /// One thing FnSpeak can be connected to: what it is, what it's for, and
 /// on the right either the way to connect it or the sign that it is.
 struct ConnectorCard<Trailing: View>: View {
-    let symbol: String
+    let icon: ConnectorIcon
     let name: String
     /// The accounts connected, shown beside the name.
     let tags: [String]
@@ -269,11 +269,7 @@ struct ConnectorCard<Trailing: View>: View {
     var body: some View {
         Card {
             HStack(alignment: .center, spacing: Theme.Space.m) {
-                Image(systemName: symbol)
-                    .font(.system(size: 15))
-                    .foregroundStyle(Theme.text)
-                    .frame(width: 32, height: 32)
-                    .background(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous).fill(Theme.sunk))
+                icon
                 VStack(alignment: .leading, spacing: Theme.Space.xs) {
                     HStack(spacing: Theme.Space.s) {
                         Text(name).font(Theme.Fonts.heading).foregroundStyle(Theme.text)
@@ -311,5 +307,59 @@ struct ConnectedMark: View {
             .background(Circle().fill(Theme.good.opacity(0.12)))
             .overlay(Circle().strokeBorder(Theme.good.opacity(0.5), lineWidth: 1))
             .accessibilityLabel("Connected")
+    }
+}
+
+/// What stands for a connector: the service's own logo, an app's icon, or
+/// a plain symbol when it isn't one company's product.
+enum ConnectorIcon: View {
+    /// A logo bundled with the app, by file name. Logos are kept exactly as
+    /// their owners publish them, on an opaque white plate, so they look the
+    /// same in light and dark.
+    case logo(String)
+    /// The icon of an app on this Mac, by bundle id.
+    case app(String)
+    case symbol(String)
+
+    private static let side: CGFloat = 32
+    private static var cache: [String: NSImage] = [:]
+
+    private static func bundled(_ name: String) -> NSImage? {
+        if let hit = cache[name] { return hit }
+        guard let url = Bundle.main.url(forResource: name, withExtension: "png"), let image = NSImage(contentsOf: url) else { return nil }
+        cache[name] = image
+        return image
+    }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
+        switch self {
+        case .logo(let name):
+            if let image = Self.bundled(name) {
+                Image(nsImage: image).resizable().interpolation(.high)
+                    .frame(width: Self.side, height: Self.side)
+                    .clipShape(shape)
+                    .overlay(shape.strokeBorder(Theme.line, lineWidth: 1))
+                    .accessibilityHidden(true)
+            } else {
+                // A build without the app bundle, such as `swift build` alone.
+                ConnectorIcon.symbol("calendar")
+            }
+        case .app(let bundleId):
+            if let image = AppIcons.icon(bundleId) {
+                Image(nsImage: image).resizable().interpolation(.high)
+                    .frame(width: Self.side, height: Self.side)
+                    .accessibilityHidden(true)
+            } else {
+                ConnectorIcon.symbol("calendar")
+            }
+        case .symbol(let name):
+            Image(systemName: name)
+                .font(.system(size: 15))
+                .foregroundStyle(Theme.text)
+                .frame(width: Self.side, height: Self.side)
+                .background(shape.fill(Theme.sunk))
+                .accessibilityHidden(true)
+        }
     }
 }

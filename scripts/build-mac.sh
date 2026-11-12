@@ -81,6 +81,7 @@ assemble_bundle() {
     cp "$ROOT/target/release/fnspeak-mcp" "$OUT/Contents/MacOS/fnspeak-mcp"
     cp "$APP_SRC/Support/Info.plist" "$OUT/Contents/Info.plist"
     cp "$APP_SRC/Support/AppIcon.icns" "$OUT/Contents/Resources/AppIcon.icns"
+    cp "$APP_SRC"/Support/Logos/*.png "$OUT/Contents/Resources/"
     cp "$LIBS"/*.dylib "$OUT/Contents/Frameworks/"
     if [[ -n "${LLAMA_SERVER:-}" ]]; then
         cp "$LLAMA_SERVER" "$OUT/Contents/Resources/llama-server"
