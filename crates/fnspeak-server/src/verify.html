@@ -3,43 +3,189 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
 <title>Sign in to FnSpeak</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='4' y='4' width='56' height='56' rx='13' fill='%23141311'/%3E%3Ctext x='32' y='41' text-anchor='middle' font-family='Helvetica,Arial,sans-serif' font-weight='700' font-size='26' fill='%23fcfcfb'%3Efn%3C/text%3E%3C/svg%3E">
 <style>
-  body { font: 16px/1.5 -apple-system, system-ui, sans-serif; max-width: 32rem; margin: 4rem auto; padding: 0 1rem; color: #222; background: #fff; }
-  @media (prefers-color-scheme: dark) { body { color: #eee; background: #111; } }
-  button { font: inherit; padding: .5rem 1rem; }
-  code { display: block; word-break: break-all; padding: .5rem; margin: .5rem 0; background: rgba(127,127,127,.15); }
+  :root {
+    --paper: #fcfcfb; --paper-2: #f3f3f1; --ink: #141311; --ink-2: #4e4b45; --ink-3: #8a867d;
+    --rule: #dcdcd8; --accent: #c4532a; --ok: #1b8a5a; --bad: #b3261e;
+    --serif: "Iowan Old Style", "Palatino", Georgia, "Times New Roman", serif;
+    --sans: -apple-system, system-ui, "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper: #15161a; --paper-2: #1d1e23; --ink: #ecebe6; --ink-2: #b4b2aa; --ink-3: #7c7a73;
+            --rule: #2d2e34; --accent: #e5693d; --ok: #3fb97f; --bad: #e5736b; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--paper-2); color: var(--ink);
+    font: 17px/1.55 var(--sans); -webkit-font-smoothing: antialiased;
+    display: grid; grid-template-rows: 1fr auto; min-height: 100%;
+  }
+  main { display: grid; place-items: center; padding: 40px 16px; }
+  .card {
+    width: 100%; max-width: 480px; background: var(--paper); border: 1px solid var(--rule);
+    border-radius: 14px; padding: 34px 34px 30px;
+  }
+  .brand { display: inline-flex; align-items: center; gap: 7px; font: 700 1.15rem/1 "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: -0.01em; color: var(--ink); text-decoration: none; }
+  .brand .q { color: var(--accent); }
+  .mark .face { fill: var(--ink); }
+  .mark .glyph { fill: var(--paper); }
+  h1 { font: 500 1.6rem/1.2 var(--serif); letter-spacing: -0.01em; margin: 28px 0 10px; }
+  p { margin: 0 0 14px; }
+  .soft { color: var(--ink-2); }
+  .small { font-size: 0.88rem; }
+  .who { font-weight: 600; }
+  code { font: 0.86em var(--mono); }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    font: 600 1rem/1.2 var(--sans); padding: 12px 22px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--ink); background: var(--ink); color: var(--paper); margin: 10px 0 4px; text-decoration: none;
+  }
+  .btn:hover { opacity: 0.9; }
+  .btn:disabled { opacity: 0.55; cursor: default; }
+  .btn.quiet { background: transparent; color: var(--ink); border-color: var(--rule); font-weight: 500; }
+  .btn:focus-visible, .copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .token {
+    display: flex; align-items: center; gap: 10px; margin: 14px 0 6px; padding: 10px 10px 10px 14px;
+    background: var(--paper-2); border: 1px solid var(--rule); border-radius: 8px;
+  }
+  .token code { flex: 1; font-size: 0.86rem; line-height: 1.5; word-break: break-all; color: var(--ink); }
+  .copy {
+    flex: none; font: 500 0.85rem/1 var(--sans); padding: 8px 12px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--rule); background: var(--paper); color: var(--ink);
+  }
+  .copy:hover { border-color: var(--ink-3); }
+  .copy.did { color: var(--ok); border-color: var(--ok); }
+  ol { margin: 0 0 14px; padding-left: 1.3em; color: var(--ink-2); }
+  ol li { margin: 4px 0; }
+  kbd { font: 0.82em var(--sans); background: var(--paper-2); border: 1px solid var(--rule); border-bottom-width: 2px; padding: 1px 6px; border-radius: 4px; }
+  .status { display: flex; align-items: flex-start; gap: 10px; margin: 6px 0 14px; }
+  .status .dot { flex: none; width: 10px; height: 10px; border-radius: 50%; margin-top: 0.5em; background: var(--ink-3); }
+  .bad .dot { background: var(--bad); }
+  .bad .msg { color: var(--bad); }
+  .rule { margin: 22px 0 0; padding-top: 16px; border-top: 1px solid var(--rule); }
+  .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+  footer { text-align: center; padding: 0 16px 28px; color: var(--ink-3); font-size: 0.85rem; }
+  footer a { color: inherit; text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 3px; }
+  footer a:hover { text-decoration-color: var(--accent); }
+  [hidden] { display: none !important; }
+  @media (max-width: 480px) { .card { padding: 26px 22px 22px; border-radius: 10px; } h1 { font-size: 1.45rem; } }
 </style>
 </head>
 <body>
-<h1>Sign in to FnSpeak</h1>
-<p id="intro">Confirm to finish signing in.</p>
-<button id="go">Sign in</button>
-<div id="out"></div>
+<main>
+  <section class="card" aria-live="polite">
+    <a class="brand" href="https://fnspeak.com/" aria-label="FnSpeak"><svg class="mark" viewBox="0 0 64 64" width="26" height="26" aria-hidden="true"><rect x="4" y="4" width="56" height="56" rx="13" class="face"/><path d="M20.75 29.85V43.78H25.43V29.85H28.67V26.72H25.43V25.7Q25.43 24.64 25.85 24.2Q26.26 23.75 27.21 23.75Q28.11 23.75 28.93 23.85V20.35Q28.34 20.32 27.71 20.27Q27.08 20.22 26.46 20.22Q23.59 20.22 22.17 21.67Q20.75 23.12 20.75 25.4V26.72H17.94V29.85ZM30.05 26.72V43.78H34.74V34.84Q34.74 32.23 35.6 31.09Q36.45 29.95 38.37 29.95Q40.05 29.95 40.71 30.99Q41.37 32.03 41.37 34.14V43.78H46.06V33.29Q46.06 31.7 45.78 30.4Q45.5 29.1 44.8 28.19Q44.11 27.28 42.91 26.77Q41.7 26.26 39.82 26.26Q38.34 26.26 36.92 26.93Q35.5 27.61 34.61 29.1H34.51V26.72Z" class="glyph"/></svg><span aria-hidden="true"><span class="q">“</span>speak<span class="q">”</span></span></a>
+
+    <!-- Ready: the link has a token and nothing has happened yet. -->
+    <div id="ready">
+      <h1>Sign in to FnSpeak</h1>
+      <p class="soft">You asked for a sign-in link. Confirm to finish, and this page will give you a token for the app.</p>
+      <button class="btn" id="go" type="button"><span class="spin" id="spin" aria-hidden="true" hidden></span><span id="go-label">Sign in</span></button>
+      <div class="status bad" id="retry" hidden><span class="dot"></span><p class="msg" id="retry-msg"></p></div>
+      <p class="soft small rule">Didn't ask for this? Close the tab. The link works once and expires after 15 minutes. You can also skip this page and paste the link straight into FnSpeak under Settings → Account.</p>
+    </div>
+
+    <!-- Done: the token was exchanged and the API token is shown once. -->
+    <div id="done" hidden>
+      <h1>You're signed in</h1>
+      <p class="soft">Signed in as <span class="who" id="who"></span>. Here's your token. It's shown once, so copy it now.</p>
+      <div class="token"><code id="token"></code><button class="copy" id="copy" type="button">Copy</button></div>
+      <p class="soft small">Starts with <code>fst_</code>. Treat it like a password.</p>
+      <ol>
+        <li>Open FnSpeak and go to <b>Settings → Account</b>.</li>
+        <li>Paste the token and press <kbd>Return</kbd>.</li>
+      </ol>
+      <p class="soft small rule">Using an MCP client instead? Send the token as a <code>Authorization: Bearer</code> header. You can revoke it any time from Settings → Account.</p>
+    </div>
+
+    <!-- Problem: no token in the URL, or the server said no. -->
+    <div id="problem" hidden>
+      <h1 id="problem-title">This link didn't work</h1>
+      <div class="status bad"><span class="dot"></span><p class="msg" id="problem-msg"></p></div>
+      <p class="soft">Go back to FnSpeak and ask for a new link. The fresh one replaces this one.</p>
+      <a class="btn quiet" href="https://fnspeak.com/#selfhost">About accounts</a>
+    </div>
+  </section>
+</main>
+<footer>This page sets no cookies and loads nothing from anywhere else. <a href="https://fnspeak.com/">fnspeak.com</a></footer>
+
 <script>
-  const token = new URLSearchParams(location.search).get("token") || "";
-  const out = document.getElementById("out");
-  document.getElementById("go").onclick = async (e) => {
-    e.target.disabled = true;
-    const res = await fetch("/v1/auth/verify", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token, name: "Browser sign-in" }),
-    });
-    const body = await res.json();
-    out.textContent = "";
-    if (!res.ok) {
-      out.textContent = body.error ? body.error.message : "Sign-in failed.";
-      return;
+  const $ = (id) => document.getElementById(id);
+  const show = (id) => { for (const s of ["ready", "done", "problem"]) $(s).hidden = s !== id; };
+  const token = (new URLSearchParams(location.search).get("token") || "").trim();
+
+  function problem(title, msg) {
+    $("problem-title").textContent = title;
+    $("problem-msg").textContent = msg;
+    show("problem");
+  }
+  // Errors worth retrying stay on the ready view, under the button.
+  function retry(msg) {
+    $("go").disabled = false;
+    $("spin").hidden = true;
+    $("go-label").textContent = "Try again";
+    $("retry-msg").textContent = msg;
+    $("retry").hidden = false;
+  }
+
+  if (!token) {
+    problem("This link is incomplete", "It's missing the sign-in token. Open the link from the email again, or copy the whole thing.");
+  }
+
+  // Label the token with where it was made, so it's recognisable in the token list.
+  const platform = /Mac/.test(navigator.platform) ? "Mac" : /Win/.test(navigator.platform) ? "Windows"
+    : /iPhone|iPad/.test(navigator.userAgent) ? "iPhone" : /Linux/.test(navigator.platform) ? "Linux" : "browser";
+  const deviceName = `Browser sign-in (${platform})`;
+
+  $("go").addEventListener("click", async () => {
+    $("go").disabled = true;
+    $("retry").hidden = true;
+    $("spin").hidden = false;
+    $("go-label").textContent = "Signing in…";
+    let res, body;
+    try {
+      res = await fetch("/v1/auth/verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token, name: deviceName }),
+      });
+      body = await res.json().catch(() => ({}));
+    } catch (_) {
+      return retry("Couldn't reach the server. Check your connection and try again.");
     }
-    document.getElementById("intro").textContent = "Signed in as " + body.user.email + ".";
-    const p = document.createElement("p");
-    p.textContent = "Your API token (shown once). Paste it into FnSpeak's settings or your MCP client:";
-    const code = document.createElement("code");
-    code.textContent = body.token;
-    out.append(p, code);
-    e.target.remove();
-  };
+    if (!res.ok) {
+      if (res.status === 429) return retry("Too many attempts from this address. Wait a minute, then try again.");
+      let message = (body.error && body.error.message) || "The server turned this link down.";
+      message = message.charAt(0).toUpperCase() + message.slice(1) + (/[.!?]$/.test(message) ? "" : ".");
+      return problem(res.status === 400 ? "This link has expired or was already used" : "Sign-in failed", message);
+    }
+    $("who").textContent = body.user.email;
+    $("token").textContent = body.token;
+    show("done");
+    history.replaceState(null, "", location.pathname); // keep the used token out of the address bar
+    $("copy").focus();
+  });
+
+  $("copy").addEventListener("click", async () => {
+    const btn = $("copy");
+    try {
+      await navigator.clipboard.writeText($("token").textContent);
+      btn.textContent = "Copied"; btn.classList.add("did");
+      setTimeout(() => { btn.textContent = "Copy"; btn.classList.remove("did"); }, 2000);
+    } catch (_) {
+      const r = document.createRange(); r.selectNodeContents($("token"));
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      btn.textContent = "Select all";
+    }
+  });
 </script>
 </body>
 </html>
