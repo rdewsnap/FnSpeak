@@ -12,6 +12,7 @@ struct ConnectorsTab: View {
     /// The calendar card whose Connect was just pressed, to say what to do next.
     @State private var guiding: CalendarAccount.Service?
     @State private var assistantConnected = MCPSetup.isConnected
+    @State private var notesAccess = AppleNotes.access
 
     var body: some View {
         KitForm {
@@ -26,6 +27,7 @@ struct ConnectorsTab: View {
             secret = prefs.webhookSecret ?? ""
             calendarAccess = CalendarNotes.hasAccess
             assistantConnected = MCPSetup.isConnected
+            notesAccess = AppleNotes.access
             calendars.start()
         }
         .onChange(of: calendars.accounts) { _, _ in
@@ -48,9 +50,9 @@ struct ConnectorsTab: View {
                              detail: "Reminders and join links for meetings on iCloud and the other calendars on this Mac.")
             }
             ConnectorCard(icon: .symbol("sparkles"), name: "AI assistants", tags: [],
-                          detail: "Let Claude and other MCP clients search your notes and meetings. Runs on this Mac.") {
+                          detail: "Let Claude, ChatGPT, Cursor and other AI tools search your notes and meetings. Runs on this Mac.") {
                 if assistantConnected { ConnectedMark() }
-                Button(assistantConnected ? "Manage" : "Set up") { SettingsRouter.shared.tab = .notes }
+                Button(assistantConnected ? "Manage" : "Set up") { SettingsRouter.shared.tab = .mcp }
             }
             Text("Calendars are read through macOS, on this Mac. FnSpeak never signs in to Google or Microsoft, and your events aren't sent anywhere.")
                 .font(Theme.Fonts.support).foregroundStyle(Theme.textSoft)
@@ -111,10 +113,30 @@ struct ConnectorsTab: View {
 
     private var appleNotes: some View {
         KitSection(title: "Apple Notes") {
-            TextField("Folder", text: $prefs.appleNotesFolder, prompt: Text("FnSpeak"))
-            Text("**Send to Apple Notes** on a note or a meeting copies it into this folder of your default Notes account. The folder is made if it's missing. macOS asks once whether FnSpeak may control Notes.")
+            Text("Copy a note or a meeting summary into the Apple Notes app. Open one in FnSpeak and choose **Send to Apple Notes**.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Button("Open Automation Settings") { AppleNotes.openAutomationSettings() }
+            LabeledContent("Put them in this folder") {
+                TextField("Folder", text: $prefs.appleNotesFolder, prompt: Text("FnSpeak"))
+                    .frame(width: 220)
+            }
+            HStack {
+                switch notesAccess {
+                case .allowed:
+                    Label("FnSpeak is allowed to add to Notes.", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(Theme.good)
+                    Spacer(minLength: 0)
+                case .refused:
+                    Text("FnSpeak isn't allowed to add to Notes. Switch it on under FnSpeak in Automation settings.")
+                        .font(.callout).foregroundStyle(Theme.warning).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: Theme.Space.m)
+                    Button("Open Automation Settings") { AppleNotes.openAutomationSettings() }
+                case .unknown:
+                    Text("macOS asks whether FnSpeak may add to Notes the first time you send something. You can allow it now instead.")
+                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: Theme.Space.m)
+                    Button("Allow…") { AppleNotes.requestAccess { notesAccess = $0 } }
+                }
+            }
         }
     }
 

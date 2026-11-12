@@ -18,9 +18,11 @@ final class NotesController: NSObject {
     private lazy var window = NotesWindowController()
 
     /// Call once at launch.
-    func start(engine: EngineController, toggleMic: @escaping () -> Void, isListening: @escaping () -> Bool) {
+    func start(engine: EngineController, toggleMic: @escaping () -> Void, cancelMic: @escaping () -> Void,
+               isListening: @escaping () -> Bool) {
         store.engine = engine
         bar.toggleMic = toggleMic
+        bar.cancelMic = cancelMic
         bar.isListening = isListening
         bar.onOpenHit = { [weak self] hit in
             guard let self else { return }
@@ -29,7 +31,7 @@ final class NotesController: NSObject {
             self.libraryModel.select(hit)
             showLibrary()
         }
-        hotkey.onPress = { [weak self] in self?.bar.toggle() }
+        hotkey.onPress = { [weak self] in self?.bar.shortcutPressed() }
         installMainMenu()
         registerHotkey()
         // Settings changes arrive before the new value is stored; look on the next turn.
@@ -103,7 +105,7 @@ final class NotesController: NSObject {
     }
 
     @objc func newNote() {
-        bar.show()
+        bar.showListening()
     }
 
     /// The list and selection behind the Notes page.

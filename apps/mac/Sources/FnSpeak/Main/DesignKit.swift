@@ -199,6 +199,8 @@ extension Theme {
 
     /// The page colour for AppKit, so a window's title bar matches its content.
     static let pageNSColor = nsColor(skin.page)
+    /// The sidebar's colour for AppKit, behind the main window's header.
+    static let sunkNSColor = nsColor(skin.sunk)
 
     // MARK: Type roles
 

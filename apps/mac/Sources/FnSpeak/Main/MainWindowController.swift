@@ -16,7 +16,7 @@ final class MainWindowController: NSWindowController {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.title = "FnSpeak"
-        window.backgroundColor = Theme.pageNSColor
+        window.backgroundColor = Theme.sunkNSColor
         window.toolbarStyle = .unified
         window.titlebarSeparatorStyle = .none
         window.isReleasedWhenClosed = false
@@ -56,14 +56,22 @@ struct MainView: View {
             Sidebar(engine: engine, actions: actions)
                 .frame(width: Theme.sidebarWidth)
                 .ignoresSafeArea()
-            Divider().ignoresSafeArea()
+            // The pages sit in a panel under the title bar, which stays put
+            // as a header while the page scrolls inside.
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Theme.page.ignoresSafeArea())
+                .background(Theme.page)
+                .clipShape(Self.panel)
+                .overlay(Self.panel.strokeBorder(Theme.line, lineWidth: 1))
+                .padding([.trailing, .bottom], Theme.panelMargin)
+                .environment(\.inPanel, true)
+                // The account button sits right above where a scroll bar would be.
+                .scrollIndicators(.never)
         }
+        .background(Theme.sunk.ignoresSafeArea())
         .frame(minWidth: 940, minHeight: 560)
         .skinned()
-        // The toolbar is there on every page, so the title bar keeps one
+        // The toolbar is there on every page, so the header keeps one
         // height and the close, minimise and zoom buttons stay put.
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -76,12 +84,14 @@ struct MainView: View {
         }
     }
 
+    private static let panel = RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous)
+
     @ViewBuilder private var detail: some View {
         switch router.tab {
         case .home:
-            HomeView(engine: engine, actions: actions).ignoresSafeArea()
+            HomeView(engine: engine, actions: actions)
         case .history:
-            HistoryView(engine: engine).ignoresSafeArea()
+            HistoryView(engine: engine)
         case .notesPage:
             NotesPage()
         case .meetingsPage:
@@ -96,7 +106,6 @@ struct MainView: View {
                     .scrollContentBackground(.hidden)
             }
             .id(router.tab)
-            .ignoresSafeArea()
         }
     }
 }
@@ -121,8 +130,9 @@ private struct AppearanceMenu: View {
             .pickerStyle(.inline)
             .labelsHidden()
         } label: {
-            Image(systemName: Self.choices.first { $0.value == prefs.appearance }?.symbol ?? "circle.lefthalf.filled")
+            Image(systemName: "sun.max")
         }
+        .menuIndicator(.hidden)
         .help("Appearance")
         .accessibilityLabel("Appearance")
     }
@@ -210,6 +220,7 @@ struct SettingsWindowView: View {
                     .scrollContentBackground(.hidden)
             }
             .id(router.settingsPage)
+            .scrollIndicators(.never)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.page)
         }

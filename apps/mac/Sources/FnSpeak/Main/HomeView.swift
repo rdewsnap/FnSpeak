@@ -20,6 +20,8 @@ struct HomeView: View {
     /// What most people manage on a keyboard, for the time-saved estimate.
     private static let typingWpm = 40.0
 
+    @Environment(\.pageTopInset) private var topInset
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -31,7 +33,7 @@ struct HomeView: View {
                 shortcuts
             }
             .padding(.horizontal, Theme.gutter)
-            .padding(.top, Theme.titlebarInset + 8)
+            .padding(.top, topInset + 8)
             .padding(.bottom, 28)
             .frame(maxWidth: Theme.pageWidth + Theme.gutter * 2)
             .frame(maxWidth: .infinity)

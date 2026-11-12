@@ -4,8 +4,9 @@ import UserNotifications
 
 /// Notices when you seem to be on a call and offers to record it. Every
 /// 10 seconds while nothing is recording, it checks for a call app (in
-/// front, or running with the mic in use) during a calendar event. It only
-/// ever suggests; recording starts when you click Start.
+/// front, or running with the mic in use) during a calendar event, or for
+/// one that's plainly mid-call when the calendar is empty. It only ever
+/// suggests; recording starts when you click Start.
 final class MeetingDetector: NSObject {
     private static let category = "com.fnspeak.meeting-suggestion"
     private static let startAction = "start"
@@ -35,6 +36,9 @@ final class MeetingDetector: NSObject {
     /// Calendar events already suggested, so each is offered once.
     private var suggested: Set<String> = []
     private var notificationsReady = false
+    /// Checks in a row that looked like a call with nothing on the calendar.
+    private var unscheduledChecks = 0
+    private var offeredUnscheduled = false
 
     init(controller: MeetingController) {
         self.controller = controller
@@ -50,12 +54,68 @@ final class MeetingDetector: NSObject {
     }
 
     private func check() {
-        guard prefs.meetingAutoDetect, let controller, controller.phase == .idle,
-              notificationsReady, MeetingCalendar.hasAccess,
-              let event = MeetingCalendar.current(), !suggested.contains(event.id),
-              let app = callAppInUse() else { return }
-        suggested.insert(event.id)
-        suggest(event: event, app: app)
+        guard prefs.meetingAutoDetect, let controller, controller.phase == .idle else { return }
+        if let event = MeetingCalendar.hasAccess ? MeetingCalendar.current() : nil {
+            endUnscheduled()
+            guard !suggested.contains(event.id), let app = callAppInUse() else { return }
+            suggested.insert(event.id)
+            // The pill offers it either way; the notification needs permission.
+            controller.onCallDetected?(event)
+            if notificationsReady {
+                suggest(id: event.id, body: "“\(event.title)” is on your calendar and \(app) looks like a call. FnSpeak can transcribe it and write a summary.")
+            }
+            return
+        }
+        checkUnscheduled(controller)
+    }
+
+    /// With nothing on the calendar there's less to go on, so a call has to
+    /// look like one for two checks running: the microphone in use by
+    /// something other than FnSpeak, and a call app that is actually in a call.
+    private func checkUnscheduled(_ controller: MeetingController) {
+        guard controller.isDictating?() != true, MeetingAudio.micInUseSomewhere, let app = appInCall() else {
+            return endUnscheduled()
+        }
+        unscheduledChecks += 1
+        guard unscheduledChecks == 2 else { return }
+        offeredUnscheduled = true
+        let now = Date()
+        let id = "call-\(Int(now.timeIntervalSince1970))"
+        controller.onCallDetected?(MeetingCalendar.Event(id: id, title: "\(app) call", attendees: [], start: now,
+                                                         end: now.addingTimeInterval(4 * 3600)))
+        if notificationsReady {
+            suggest(id: id, body: "\(app) looks like a call. FnSpeak can transcribe it and write a summary.")
+        }
+    }
+
+    /// The call is over, or never was one: stop offering it.
+    private func endUnscheduled() {
+        unscheduledChecks = 0
+        guard offeredUnscheduled else { return }
+        offeredUnscheduled = false
+        controller?.onCallDetected?(nil)
+    }
+
+    /// A call app that looks mid-call, wherever it is on screen. Zoom and
+    /// Slack stay open all day, so they only count with a call window up.
+    private func appInCall() -> String? {
+        for app in NSWorkspace.shared.runningApplications {
+            guard let id = app.bundleIdentifier else { continue }
+            let name = app.localizedName ?? "A"
+            switch id {
+            case "us.zoom.xos":
+                if windowTitles(of: app, contain: ["Zoom Meeting", "Zoom Webinar"]) { return name }
+            case "com.tinyspeck.slackmacgap":
+                if windowTitles(of: app, contain: ["Huddle"]) { return name }
+            case _ where Self.callApps.contains(id):
+                return name
+            case _ where Self.browsers.contains(id):
+                if browserShowsCall(app) { return name }
+            default:
+                continue
+            }
+        }
+        return nil
     }
 
     /// The name of the call app in use, if any.
@@ -76,8 +136,12 @@ final class MeetingDetector: NSObject {
         return nil
     }
 
-    /// Reads window titles through Accessibility, which FnSpeak already has for pasting.
     private func browserShowsCall(_ app: NSRunningApplication) -> Bool {
+        windowTitles(of: app, contain: Self.browserCallTitles)
+    }
+
+    /// Reads window titles through Accessibility, which FnSpeak already has for pasting.
+    private func windowTitles(of app: NSRunningApplication, contain needles: [String]) -> Bool {
         guard AXIsProcessTrusted() else { return false }
         let element = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(element, 0.25)
@@ -88,7 +152,7 @@ final class MeetingDetector: NSObject {
             var title: CFTypeRef?
             if AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &title) == .success,
                let title = title as? String,
-               Self.browserCallTitles.contains(where: { title.contains($0) }) {
+               needles.contains(where: { title.contains($0) }) {
                 return true
             }
         }
@@ -125,12 +189,12 @@ final class MeetingDetector: NSObject {
         }
     }
 
-    private func suggest(event: MeetingCalendar.Event, app: String) {
+    private func suggest(id: String, body: String) {
         let content = UNMutableNotificationContent()
         content.title = "In a meeting? Start recording"
-        content.body = "“\(event.title)” is on your calendar and \(app) looks like a call. FnSpeak can transcribe it and write a summary."
+        content.body = body
         content.categoryIdentifier = Self.category
-        let request = UNNotificationRequest(identifier: "meeting-\(event.id)", content: content, trigger: nil)
+        let request = UNNotificationRequest(identifier: "meeting-\(id)", content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request) { error in
             if let error { Log.error("Meeting suggestion failed: \(error.localizedDescription)") }
         }

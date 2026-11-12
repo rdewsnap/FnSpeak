@@ -43,13 +43,15 @@ struct GeneralTab: View {
             }
 
             KitSection(title: "Overlay") {
-                KitPicker("Position", selection: $prefs.overlayPosition) {
+                KitPicker("Position", selection: $prefs.overlayPosition, width: 170) {
                     Text("Bottom center").tag("bottom")
                     Text("Top center").tag("top")
+                    Text("Left side").tag("left")
+                    Text("Right side").tag("right")
                     Text("Near the pointer").tag("cursor")
                     Text("Hidden").tag("hidden")
                 }
-                KitPicker("Size", selection: $prefs.overlaySize) {
+                KitPicker("Size", selection: $prefs.overlaySize, width: 170) {
                     Text("Small").tag("small")
                     Text("Medium").tag("medium")
                     Text("Large").tag("large")
@@ -60,7 +62,7 @@ struct GeneralTab: View {
                     Text("Errors and notes still appear so a failed dictation is never silent.")
                         .font(.callout).foregroundStyle(.secondary)
                 } else if prefs.showPillWhenIdle {
-                    Text("A small pill stays on screen. Hover it to see the hotkey; click it to open the notes bar.")
+                    Text("A small pill stays on screen. Point at it for a menu to dictate, jot a note or record a meeting, or drag it to any side of the screen.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
             }
@@ -119,7 +121,7 @@ struct GeneralTab: View {
     /// A sound menu that plays each choice as it's picked.
     private func soundPicker(_ title: String, selection: Binding<String>) -> some View {
         let heard = Binding(get: { selection.wrappedValue }, set: { selection.wrappedValue = $0; Sounds.play($0) })
-        return KitPicker(title, selection: heard) {
+        return KitPicker(title, selection: heard, width: 170) {
             ForEach(Sounds.choices, id: \.self) { Text($0).tag($0) }
             Divider()
             Text(Sounds.none).tag(Sounds.none)

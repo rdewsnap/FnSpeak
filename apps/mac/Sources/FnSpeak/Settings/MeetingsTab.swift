@@ -32,7 +32,7 @@ struct MeetingsTab: View {
 
             KitSection(title: "Starting") {
                 Toggle("Suggest recording when a call starts", isOn: $prefs.meetingAutoDetect)
-                Text("When Zoom, Teams, FaceTime, Slack or a Meet tab looks like a call during a calendar event, FnSpeak sends a notification with a Start button. It never starts recording by itself.")
+                Text("When Zoom, Teams, FaceTime, Slack or a Meet tab looks like a call, on your calendar or not, FnSpeak offers to record it, on the pill and in a notification. It never starts recording by itself.")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Toggle("Ask for a title when starting", isOn: $prefs.meetingAskTitle)
                 Text("Otherwise the title and participants come from the calendar event happening now, or the date.")

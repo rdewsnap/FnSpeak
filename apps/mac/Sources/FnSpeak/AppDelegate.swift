@@ -9,6 +9,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let recorder = AudioRecorder()
     private let hotkeys = HotkeyMonitor()
     private let overlay = Overlay()
+    private var promptObserver: AnyCancellable?
+    /// The calendar event a call was last noticed during.
+    private var detectedCall: MeetingCalendar.Event?
+    /// Meetings whose pill prompt was used or waved away.
+    private var dismissedPrompts = Set<String>()
     private let editWatcher = EditWatcher()
     private lazy var indexer = PersonalIndexer(engine: engine)
     private let notes = NotesController.shared
@@ -62,9 +67,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeys.onSwapToRaw = { [weak self] in self?.swapToRaw() }
         editWatcher.onEdit = { [weak self] in self?.learn(inserted: $0, edited: $1) }
         notes.start(engine: engine, toggleMic: { [weak self] in self?.toggleNoteDictation() },
+                    cancelMic: { [weak self] in
+                        self?.hotkeys.recordingEnded()
+                        self?.cancelRecording()
+                    },
                     isListening: { [weak self] in self?.phase == .listening })
-        meetings.onRecordingChange = { [weak self] in self?.updateStatusIcon() }
-        overlay.onIdleClick = { [weak self] in self?.notes.newNote() }
+        meetings.onRecordingChange = { [weak self] in
+            self?.updateStatusIcon()
+            self?.updateMeetingPrompt()
+        }
+        meetings.isDictating = { [weak self] in self?.phase != .idle }
+        meetings.onCallDetected = { [weak self] event in
+            self?.detectedCall = event
+            self?.updateMeetingPrompt()
+        }
+        promptObserver = UpcomingMeetings.shared.$meetings
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateMeetingPrompt() }
+        // "in 9 min" counts down, and a meeting comes into range, between calendar changes.
+        let promptTimer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in self?.updateMeetingPrompt() }
+        promptTimer.tolerance = 5
+        RunLoop.main.add(promptTimer, forMode: .common)
+        overlay.actions = [
+            .init(id: "dictate", symbol: "mic.fill", label: "Dictate",
+                  hint: "Start dictating. Press \(prefs.hotkey.displayName) to finish.") { [weak self] in self?.dictateFromPill() },
+            .init(id: "note", symbol: "square.and.pencil", label: "Note",
+                  hint: "Jot a note and start talking.") { [weak self] in self?.notes.newNote() },
+            .init(id: "meeting", symbol: "record.circle", label: "Meeting",
+                  hint: "Record and transcribe a meeting.") { [weak self] in self?.meetings.requestStart() },
+            .init(id: "open", symbol: "macwindow", label: "Open",
+                  hint: "Open FnSpeak.") { [weak self] in self?.showSettings(tab: .home) },
+        ]
         setUpActions()
         AccountController.shared.engine = engine
         SettingsRouter.shared.openSettingsWindow = { [weak self] in self?.showSettingsWindow() }
@@ -319,6 +352,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.show(.hidden)
     }
 
+    /// The pill's Dictate: a hands-free dictation into whatever app is in
+    /// front, finished with the hotkey or by going quiet.
+    private func dictateFromPill() {
+        guard phase == .idle, startRecording() else { return }
+        hotkeys.recordingStartedElsewhere()
+        overlay.show(.listening(handsFree: true))
+    }
+
     /// The notes bar's mic button: start a dictation, or finish the running one.
     private func toggleNoteDictation() {
         if phase == .listening {
@@ -449,6 +490,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Meetings on the calendar
+
+    /// What the pill offers: recording a call that was just noticed, or the
+    /// meeting that's on or starts in the next ten minutes.
+    private func updateMeetingPrompt() {
+        guard meetings.phase == .idle else { return overlay.setMeetingPrompt(nil) }
+        if let call = detectedCall, call.end > Date(), !dismissedPrompts.contains(call.id) {
+            let prompt = Overlay.MeetingPrompt(id: call.id, title: call.title, when: "", action: "Record", detected: true)
+            return overlay.setMeetingPrompt(prompt, action: { [weak self] in
+                self?.dismissedPrompts.insert(call.id)
+                self?.meetings.requestStart(title: call.title)
+                self?.updateMeetingPrompt()
+            }, dismiss: { [weak self] in
+                self?.dismissedPrompts.insert(call.id)
+                self?.updateMeetingPrompt()
+            })
+        }
+        guard let next = UpcomingMeetings.shared.next, !dismissedPrompts.contains(next.id),
+              next.isNow() || next.start.timeIntervalSinceNow <= 10 * 60 else { return overlay.setMeetingPrompt(nil) }
+        let prompt = Overlay.MeetingPrompt(id: next.id, title: next.title, when: next.when(),
+                                           action: next.joinURL == nil ? "Record" : "Join and Record", detected: false)
+        overlay.setMeetingPrompt(prompt, action: { [weak self] in
+            self?.dismissedPrompts.insert(next.id)
+            if let url = next.joinURL { NSWorkspace.shared.open(url) }
+            self?.meetings.requestStart(title: next.title)
+            self?.updateMeetingPrompt()
+        }, dismiss: { [weak self] in
+            self?.dismissedPrompts.insert(next.id)
+            self?.updateMeetingPrompt()
+        })
+    }
 
     @objc private func joinMeeting(_ sender: NSMenuItem) {
         guard let meeting = sender.representedObject as? MeetingBox, let url = meeting.value.joinURL else { return }

@@ -13,6 +13,12 @@ final class NotesBar: NSObject, NSWindowDelegate {
     var toggleMic: (() -> Void)?
     /// Whether a dictation is recording right now.
     var isListening: (() -> Bool)?
+    /// Drop the running dictation without transcribing it.
+    var cancelMic: (() -> Void)?
+    /// The bar started the running dictation itself, so closing the bar ends it.
+    private var startedMic = false
+    /// Return was pressed mid-dictation: save once the words arrive.
+    private var saveAfterDictation = false
     /// A search hit was chosen.
     var onOpenHit: ((SearchHit) -> Void)?
 
@@ -77,7 +83,29 @@ final class NotesBar: NSObject, NSWindowDelegate {
         panel.isVisible && panel.isKeyWindow ? hide() : show()
     }
 
+    /// The shortcut: open the bar already listening. Pressed again it stops
+    /// listening, so the words land in the bar, and once more puts it away.
+    func shortcutPressed() {
+        guard prefs.notesAutoListen else { return toggle() }
+        if panel.isVisible && panel.isKeyWindow {
+            if isListening?() == true { micTapped() } else { hide() }
+            return
+        }
+        showListening()
+    }
+
+    /// Open the bar and start a dictation into it, unless that's switched
+    /// off or one is already running.
+    func showListening() {
+        show()
+        guard prefs.notesAutoListen, isListening?() != true else { return }
+        toggleMic?()
+        startedMic = isListening?() ?? false
+        model.listening = startedMic
+    }
+
     func show() {
+        saveAfterDictation = false
         if model.state != .editing { model.state = .editing }
         let wasVisible = panel.isVisible
         let target = frame(for: panel.frame.height)
@@ -104,6 +132,10 @@ final class NotesBar: NSObject, NSWindowDelegate {
     }
 
     func hide() {
+        // A dictation the bar started has nowhere to go once the bar is gone.
+        if startedMic, isListening?() == true { cancelMic?() }
+        startedMic = false
+        saveAfterDictation = false
         listenTimer?.invalidate()
         listenTimer = nil
         guard panel.isVisible else { return }
@@ -125,6 +157,11 @@ final class NotesBar: NSObject, NSWindowDelegate {
         let before = (textView.string as NSString).substring(to: range.location)
         let needsSpace = !(before.isEmpty || before.last?.isWhitespace == true)
         textView.insertText((needsSpace ? " " : "") + text, replacementRange: range)
+        startedMic = false
+        if saveAfterDictation {
+            saveAfterDictation = false
+            submit()
+        }
         return true
     }
 
@@ -134,6 +171,12 @@ final class NotesBar: NSObject, NSWindowDelegate {
         if model.query != nil {
             if let hit = model.hits[safe: model.selected] { open(hit) }
             return
+        }
+        // Still talking: finish the dictation first and save when it lands.
+        if model.state == .editing, isListening?() == true {
+            saveAfterDictation = true
+            startedMic = false
+            return micTapped()
         }
         let text = model.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, model.state == .editing else { return }

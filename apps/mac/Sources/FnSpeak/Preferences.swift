@@ -67,7 +67,7 @@ final class Preferences: ObservableObject {
     @Published var stopSound: String { didSet { defaults.set(stopSound, forKey: "stopSound") } }
     /// 0 to 1. The sounds sit under whatever else is playing.
     @Published var soundVolume: Double { didSet { defaults.set(soundVolume, forKey: "soundVolume") } }
-    /// `bottom`, `top`, `cursor` or `hidden`.
+    /// `bottom`, `top`, `left`, `right`, `cursor` or `hidden`.
     @Published var overlayPosition: String { didSet { defaults.set(overlayPosition, forKey: "overlayPosition") } }
     /// `small`, `medium` or `large`.
     @Published var overlaySize: String { didSet { defaults.set(overlaySize, forKey: "overlaySize") } }
@@ -120,7 +120,7 @@ final class Preferences: ObservableObject {
         soundVolume = defaults.object(forKey: "soundVolume") as? Double ?? 0.35
         overlayPosition = defaults.string(forKey: "overlayPosition") ?? "bottom"
         overlaySize = defaults.string(forKey: "overlaySize") ?? "medium"
-        showPillWhenIdle = defaults.object(forKey: "showPillWhenIdle") as? Bool ?? false
+        showPillWhenIdle = defaults.object(forKey: "showPillWhenIdle") as? Bool ?? true
         hotkeyPreset = defaults.string(forKey: "hotkeyPreset") ?? HotkeyPreset.fn.rawValue
         customHotkeyKeyCode = defaults.object(forKey: "customHotkeyKeyCode") as? Int ?? 49
         customHotkeyModifiers = defaults.object(forKey: "customHotkeyModifiers") as? Int
@@ -271,6 +271,12 @@ extension Preferences {
     var notesBarPosition: String {
         get { stored("notesBarPosition", "pill") }
         set { store(newValue, "notesBarPosition") }
+    }
+
+    /// Start a dictation when the shortcut opens the notes bar.
+    var notesAutoListen: Bool {
+        get { stored("notesAutoListen", true) }
+        set { store(newValue, "notesAutoListen") }
     }
 
     /// Let the cleanup model title new notes; off uses the first line.

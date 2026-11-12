@@ -13,6 +13,27 @@ enum Theme {
     static let sidebarWidth: CGFloat = 208
     /// Room for the traffic lights above the first row of content.
     static let titlebarInset: CGFloat = 38
+    /// Space above a page's title when it sits in the main window's panel,
+    /// where the header above already clears the traffic lights.
+    static let panelInset: CGFloat = 22
+    /// The gap between the main window's panel and the window's edge.
+    static let panelMargin: CGFloat = 8
+}
+
+private struct InPanelKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// True inside the main window's panel, which sits under a pinned
+    /// header instead of running up behind the title bar.
+    var inPanel: Bool {
+        get { self[InPanelKey.self] }
+        set { self[InPanelKey.self] = newValue }
+    }
+
+    /// Space to leave above a page's first row.
+    var pageTopInset: CGFloat { inPanel ? Theme.panelInset : Theme.titlebarInset }
 }
 
 /// A quiet rounded panel on the window background.
@@ -52,6 +73,7 @@ struct Page<Content: View>: View {
     let title: String
     var subtitle: String?
     @ViewBuilder var content: Content
+    @Environment(\.pageTopInset) private var topInset
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -63,7 +85,7 @@ struct Page<Content: View>: View {
                 }
             }
             .padding(.horizontal, Theme.gutter)
-            .padding(.top, Theme.titlebarInset)
+            .padding(.top, topInset)
             .padding(.bottom, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
 

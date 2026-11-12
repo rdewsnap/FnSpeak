@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case home, history, meetingsPage, notesPage, style, general, dictation, cleanup, vocabulary, snippets, context, notes, meetings, integrations, account, privacy, advanced, about
+    case home, history, meetingsPage, notesPage, style, general, dictation, cleanup, vocabulary, snippets, context, notes, meetings, integrations, mcp, account, privacy, advanced, about
 
     var id: String { rawValue }
 
@@ -21,6 +21,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .notes: return "Notes"
         case .meetings: return "Meetings"
         case .integrations: return "Connectors"
+        case .mcp: return "MCP"
         case .account: return "Account"
         case .privacy: return "Privacy"
         case .advanced: return "Advanced"
@@ -44,6 +45,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .notes: return "note.text"
         case .meetings: return "person.2.wave.2"
         case .integrations: return "puzzlepiece.extension"
+        case .mcp: return "sparkles"
         case .account: return "person.crop.circle"
         case .privacy: return "hand.raised"
         case .advanced: return "slider.horizontal.3"
@@ -56,7 +58,7 @@ extension SettingsTab {
     /// The top of the sidebar: what you use, as opposed to what you set once.
     /// History has no row of its own: Home shows the latest and links to the rest.
     static let main: [SettingsTab] = [.home, .meetingsPage, .notesPage, .vocabulary, .snippets, .style]
-    static let settings: [SettingsTab] = [.general, .dictation, .cleanup, .context, .notes, .meetings, .integrations, .account, .privacy, .advanced, .about]
+    static let settings: [SettingsTab] = [.general, .dictation, .cleanup, .context, .notes, .meetings, .integrations, .mcp, .account, .privacy, .advanced, .about]
 
     /// One line under the page title.
     var subtitle: String? {
@@ -72,6 +74,7 @@ extension SettingsTab {
         case .notes: return "The notes bar and where notes are kept."
         case .meetings: return "Recording, transcripts and summaries."
         case .integrations: return "Calendars, AI assistants and where your notes can go."
+        case .mcp: return "Let your AI search your notes, meetings and dictations."
         case .account: return "Optional. Everything works on this Mac without one."
         case .privacy: return "What stays on this Mac, and what you can delete."
         case .advanced: return "Speech engine, models and troubleshooting."
@@ -135,6 +138,7 @@ struct SettingsView: View {
             case .notes: NotesTab()
             case .meetings: MeetingsTab()
             case .integrations: ConnectorsTab()
+            case .mcp: MCPTab()
             case .account: AccountTab()
             case .privacy: PrivacyTab(engine: engine)
             case .advanced: AdvancedTab(engine: engine)

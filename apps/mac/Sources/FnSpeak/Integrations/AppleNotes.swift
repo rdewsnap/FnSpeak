@@ -51,6 +51,40 @@ enum AppleNotes {
         }
     }
 
+    /// Whether macOS lets FnSpeak add to Notes.
+    enum Access {
+        case allowed
+        /// The user said no. FnSpeak is listed under Automation, switched off.
+        case refused
+        /// Never asked, or Notes isn't open so macOS won't say. FnSpeak
+        /// isn't listed under Automation until it has asked once.
+        case unknown
+    }
+
+    /// Looks without asking, so it never puts up the macOS prompt.
+    static var access: Access {
+        let target = NSAppleEventDescriptor(bundleIdentifier: "com.apple.Notes")
+        guard let desc = target.aeDesc else { return .unknown }
+        switch AEDeterminePermissionToAutomateTarget(desc, typeWildCard, typeWildCard, false) {
+        case noErr: return .allowed
+        case OSStatus(errAEEventNotPermitted): return .refused
+        default: return .unknown
+        }
+    }
+
+    /// Ask now, with something harmless, instead of waiting for the first
+    /// note to be sent. Opens Notes if it isn't running.
+    static func requestAccess(completion: @escaping (Access) -> Void) {
+        DispatchQueue.main.async {
+            var info: NSDictionary?
+            let result = NSAppleScript(source: "tell application \"Notes\" to count folders")?.executeAndReturnError(&info)
+            if result != nil { return completion(.allowed) }
+            let code = info?[NSAppleScript.errorNumber] as? Int ?? 0
+            Log.error("Apple Notes access: \(code)")
+            completion(code == -1743 ? .refused : .unknown)
+        }
+    }
+
     static func openAutomationSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
             NSWorkspace.shared.open(url)

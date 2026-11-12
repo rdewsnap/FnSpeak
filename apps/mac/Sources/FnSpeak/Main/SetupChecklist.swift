@@ -35,7 +35,7 @@ struct SetupChecklist: View {
                 router.tab = .integrations
             },
             Step(id: "mcp", title: "Connect an AI assistant", done: MCPSetup.isConnected) {
-                router.tab = .notes
+                router.tab = .mcp
             },
         ]
     }

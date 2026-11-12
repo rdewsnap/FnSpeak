@@ -42,6 +42,12 @@ final class MeetingController: NSObject, ObservableObject {
 
     /// Called when recording starts or stops (for the menu bar icon).
     var onRecordingChange: (() -> Void)?
+    /// A call was noticed and nothing is recording: the calendar event it's
+    /// during, or one made up for a call that isn't on the calendar. Nil
+    /// when a call like that ends.
+    var onCallDetected: ((MeetingCalendar.Event?) -> Void)?
+    /// FnSpeak itself has the microphone open for a dictation.
+    var isDictating: (() -> Bool)?
 
     var isRecording: Bool { phase == .recording }
 

@@ -45,6 +45,8 @@ final class HotkeyMonitor {
     private var active = false
     private var pressedAt = Date.distantPast
     private var handsFree = false
+    /// The running recording was started from the pill, not by this monitor.
+    private var startedElsewhere = false
     private var awaitingSecondTap = false
     private var usedAsModifier = false
     /// The current press was refused or cancelled; ignore it until released.
@@ -76,8 +78,16 @@ final class HotkeyMonitor {
         tapSource = nil
     }
 
+    /// A recording was started some other way (the pill's menu) and runs
+    /// hands-free: the next press of the hotkey finishes it.
+    func recordingStartedElsewhere() {
+        active = true
+        startedElsewhere = true
+    }
+
     /// The recording ended some way other than the hotkey (auto-stop, a menu action).
     func recordingEnded() {
+        startedElsewhere = false
         active = false
         handsFree = false
         awaitingSecondTap = false
@@ -199,6 +209,11 @@ final class HotkeyMonitor {
     private func pressed() {
         usedAsModifier = false
         ignoreUntilRelease = false
+        if startedElsewhere {
+            startedElsewhere = false
+            ignoreUntilRelease = true
+            return finish()
+        }
         switch style {
         case .toggle:
             active ? finish() : begin()

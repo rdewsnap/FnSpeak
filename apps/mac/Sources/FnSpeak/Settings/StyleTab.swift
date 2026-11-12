@@ -20,7 +20,7 @@ struct StyleTab: View {
 
             KitSection(title: "By kind of app") {
                 ForEach(AppCategory.allCases) { category in
-                    Picker(category.label, selection: styleBinding(for: category)) {
+                    KitPicker(category.label, selection: styleBinding(for: category), width: 340) {
                         ForEach(WritingStyle.allCases) { Text("\($0.label) — \($0.detail)").tag($0) }
                     }
                 }

@@ -446,16 +446,29 @@ extension View {
     /// with a detail beside it. The page's buttons live here, so nothing
     /// is handed to the system toolbar.
     func kitHeader<Actions: View>(_ title: String, @ViewBuilder actions: () -> Actions) -> some View {
+        KitHeaderPage(header: KitHeader(title: title, actions: actions), page: self)
+    }
+}
+
+private struct KitHeaderPage<Actions: View, Page: View>: View {
+    let header: KitHeader<Actions>
+    let page: Page
+    @Environment(\.inPanel) private var inPanel
+    @Environment(\.pageTopInset) private var topInset
+
+    var body: some View {
         VStack(spacing: 0) {
-            KitHeader(title: title, actions: actions)
+            header
                 .padding(.horizontal, Theme.gutter)
-                .padding(.top, Theme.titlebarInset)
+                .padding(.top, topInset)
                 .padding(.bottom, Theme.Space.m)
                 .background(Theme.page)
             Rectangle().fill(Theme.line).frame(height: 1)
-            self
+            page
         }
-        .ignoresSafeArea(edges: .top)
+        // On its own the page runs up behind the title bar; in the main
+        // window's panel it stays under the header.
+        .ignoresSafeArea(edges: inPanel ? [] : .top)
     }
 }
 
@@ -536,19 +549,29 @@ struct KitTextFieldStyle: TextFieldStyle {
 struct KitPicker<Selection: Hashable, Content: View>: View {
     let title: String
     @Binding var selection: Selection
+    /// Set on pickers stacked in one section, so they line up on both
+    /// sides. Left alone, each is as wide as its own choice.
+    var width: CGFloat?
     @ViewBuilder var content: Content
 
-    init(_ title: String, selection: Binding<Selection>, @ViewBuilder content: () -> Content) {
+    init(_ title: String, selection: Binding<Selection>, width: CGFloat? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
         self._selection = selection
+        self.width = width
         self.content = content()
     }
 
     var body: some View {
         LabeledContent(title) {
-            Picker(title, selection: $selection) { content }
-                .labelsHidden()
-                .fixedSize()
+            if let width {
+                Picker(title, selection: $selection) { content }
+                    .labelsHidden()
+                    .frame(width: width)
+            } else {
+                Picker(title, selection: $selection) { content }
+                    .labelsHidden()
+                    .fixedSize()
+            }
         }
     }
 }
