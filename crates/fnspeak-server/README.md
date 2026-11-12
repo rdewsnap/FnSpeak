@@ -58,7 +58,7 @@ Everything except sign-in and `/healthz` takes `Authorization: Bearer <token>`. 
 
 | | |
 |---|---|
-| `POST /v1/auth/magic-link` `{email}` | Email a sign-in link (rate limited) |
+| `POST /v1/auth/magic-link` `{email, return_to?}` | Email a sign-in link (rate limited). `return_to` sends the link to your own page instead of the server's; its origin must be one of `FNSPEAK_CORS_ORIGINS` |
 | `GET /v1/auth/verify?token=` | Page the link opens |
 | `POST /v1/auth/verify` `{token, name?}` | Exchange the link token for an API token; creates the account on first sign-in |
 | `GET /v1/me` | Account and teams |
