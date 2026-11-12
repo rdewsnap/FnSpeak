@@ -14,6 +14,10 @@ import SwiftUI
 ///   FNSPEAK_PREVIEW_PERMISSIONS=off   draw everything as if the microphone
 ///                                 and Accessibility were switched off
 ///   FNSPEAK_PREVIEW_MEETING=1     draw the app with a meeting about to start
+///   FNSPEAK_PREVIEW_PLAN=1        draw the account page signed in, on a made-up plan
+///   FNSPEAK_PREVIEW_SIGNIN=1      draw the account page signed out, with Google on offer
+///   FNSPEAK_KIT_GALLERY=/some/dir draw the design kit's gallery sheets there
+///                                 (light and dark) and quit, without loading anything
 ///   FNSPEAK_DATA_DIR=/some/dir    use this instead of Application Support
 ///                                 (see ModelLocator), to leave real data alone
 enum DevTools {
@@ -104,7 +108,7 @@ enum DevTools {
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
             window.appearance = NSAppearance(named: .aqua)
-            window.backgroundColor = .windowBackgroundColor
+            window.backgroundColor = Theme.pageNSColor
             window.makeKeyAndOrderFront(nil)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                 if let content = window.contentView, let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) {

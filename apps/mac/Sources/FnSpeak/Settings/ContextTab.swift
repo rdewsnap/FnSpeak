@@ -18,8 +18,8 @@ struct ContextTab: View {
     ]
 
     var body: some View {
-        Form {
-            Section("Where names come from") {
+        KitForm {
+            KitSection(title: "Where names come from") {
                 LabeledContent("Projects folder") {
                     HStack {
                         Text(prefs.projectsFolder.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
@@ -37,7 +37,7 @@ struct ContextTab: View {
                 }
             }
 
-            Section("On-screen context") {
+            KitSection(title: "On-screen context") {
                 Toggle("Read the focused field", isOn: $prefs.readFocusedField)
                 Text("Looks at the text just before your cursor so capitalization and names fit what you're writing. Password fields are never read. Needs Accessibility.")
                     .font(.callout).foregroundStyle(.secondary)
@@ -55,7 +55,7 @@ struct ContextTab: View {
                 }
             }
 
-            Section("Excluded apps") {
+            KitSection(title: "Excluded apps") {
                 Text("FnSpeak won't listen or read anything while one of these is in front.")
                     .font(.callout).foregroundStyle(.secondary)
                 ForEach(prefs.excludedApps, id: \.self) { bundleId in
@@ -81,14 +81,14 @@ struct ContextTab: View {
                 }
             }
 
-            Section("How text is inserted") {
+            KitSection(title: "How text is inserted") {
                 Text("Pasting works almost everywhere. If an app ignores it, pick another method for that app.")
                     .font(.callout).foregroundStyle(.secondary)
                 ForEach(prefs.insertionOverrides.keys.sorted(), id: \.self) { bundleId in
                     HStack {
                         AppLabel(bundleId: bundleId)
                         Spacer()
-                        Picker("", selection: methodBinding(bundleId)) {
+                        KitPicker("", selection: methodBinding(bundleId)) {
                             Text("Accessibility").tag("ax")
                             Text("Type it out").tag("type")
                         }
@@ -100,7 +100,6 @@ struct ContextTab: View {
                 AddAppMenu(title: "Add app…", excluding: Set(prefs.insertionOverrides.keys)) { prefs.insertionOverrides[$0] = "ax" }
             }
         }
-        .formStyle(.grouped)
         .onAppear { accessibilityGranted = ContextReader.requestAccessibility(prompt: false) }
     }
 

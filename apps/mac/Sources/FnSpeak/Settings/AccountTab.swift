@@ -12,45 +12,61 @@ struct AccountTab: View {
     @State private var serverField = ""
 
     var body: some View {
-        Form {
-            serverSection
+        KitForm {
+            introSection
             if account.isSignedIn {
                 signedInSection
+                planSection
                 SyncSettingsSection()
                 TeamsSection()
             } else {
                 signInSection
             }
             if let message = account.error {
-                Section { Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+                KitSection { Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
             } else if let notice = account.notice {
-                Section { Label(notice, systemImage: "checkmark.circle").foregroundStyle(.secondary) }
+                KitSection { Label(notice, systemImage: "checkmark.circle").foregroundStyle(.secondary) }
             }
             privacySection
+            selfHostedSection
         }
-        .formStyle(.grouped)
         .disabled(account.busy)
         .onAppear {
             ownServer = !account.usesCloud
             serverField = account.usesCloud ? "" : prefs.serverURL
             email = prefs.accountEmail ?? ""
             account.refresh()
+            account.checkSignInProviders()
+        }
+        // Coming back from a page the plan section opened in the browser.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            account.refresh()
+            account.finishGoogleSignIn()
         }
     }
 
-    // MARK: - Server
+    // MARK: - What an account is
 
-    private var serverSection: some View {
-        Section {
-            Picker("Server", selection: $ownServer) {
-                Text("FnSpeak Cloud").tag(false)
-                Text("My own server").tag(true)
+    private var introSection: some View {
+        KitSection {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("An account adds sync between your Macs, teams with a shared glossary, and hosted cleanup and meeting summaries for when you'd rather not run the model here.")
+                if !account.usesCloud {
+                    Text("Using your own server at \(prefs.serverURL).")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
             }
-            .pickerStyle(.radioGroup)
-            .onChange(of: ownServer) {
-                if !ownServer && !account.usesCloud { account.useServer(ServerClient.cloudURL) }
-            }
-            if ownServer {
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: - Self-hosted server
+
+    /// Out of the way at the bottom: almost nobody runs their own server,
+    /// and nobody should have to decide about it before signing in.
+    private var selfHostedSection: some View {
+        KitSection {
+            DisclosureGroup("Use a self-hosted server", isExpanded: $ownServer) {
                 HStack {
                     TextField("Server URL", text: $serverField, prompt: Text("https://fnspeak.example.com"))
                         .onSubmit(useOwnServer)
@@ -58,15 +74,17 @@ struct AccountTab: View {
                         .disabled(ServerClient.normalize(serverField) == nil
                                   || ServerClient.normalize(serverField) == ServerClient.normalize(prefs.serverURL))
                 }
-                Text("Any copy of fnspeak-server, such as one you run with Docker. Changing the server signs you out.")
+                Text("For people who run their own copy of fnspeak-server, for example with Docker. Changing the server signs you out.")
                     .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !account.usesCloud {
+                    Button("Go back to FnSpeak Cloud") {
+                        account.useServer(ServerClient.cloudURL)
+                        serverField = ""
+                        ownServer = false
+                    }
+                }
             }
-        } header: {
-            Text("Account")
-        } footer: {
-            Text("An account is optional. It adds sync between Macs, teams with a shared glossary, and hosted cleanup and meeting summaries.")
-                .font(.callout).foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -78,7 +96,7 @@ struct AccountTab: View {
     // MARK: - Signing in
 
     @ViewBuilder private var signInSection: some View {
-        Section("Sign in") {
+        KitSection(title: "Sign in") {
             switch account.phase {
             case .waitingForLink(let address):
                 Text("We sent a link to **\(address)**. Copy the link from the email and paste it here; there's no need to open it. If you already opened it and pressed **Sign in**, paste the token the page shows instead.")
@@ -93,6 +111,12 @@ struct AccountTab: View {
                     Button("Use a different email") { account.cancelSignIn() }
                 }
             default:
+                if account.offersGoogle {
+                    Button("Continue with Google") { account.signInWithGoogle() }
+                        .buttonStyle(.kitPrimary)
+                    Text("Or use your email:")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
                 HStack {
                     TextField("Email", text: $email, prompt: Text("you@example.com"))
                         .textContentType(.emailAddress)
@@ -115,9 +139,11 @@ struct AccountTab: View {
     // MARK: - Signed in
 
     private var signedInSection: some View {
-        Section("Signed in") {
+        KitSection(title: "Signed in") {
             LabeledContent("Email", value: account.email ?? "—")
-            LabeledContent("Server", value: account.usesCloud ? "FnSpeak Cloud" : prefs.serverURL)
+            if !account.usesCloud {
+                LabeledContent("Server", value: prefs.serverURL)
+            }
             HStack {
                 Button("Refresh") { account.refresh() }
                 Spacer()
@@ -126,10 +152,35 @@ struct AccountTab: View {
         }
     }
 
+    // MARK: - Plan
+
+    /// Shown only when the server describes a plan. Its words and buttons
+    /// come from the server.
+    @ViewBuilder private var planSection: some View {
+        if let plan = account.plan, let summary = plan.summary {
+            KitSection(title: "Plan") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(summary)
+                    if let progress = plan.progress {
+                        ProgressView(value: min(max(progress, 0), 1))
+                    }
+                    if let detail = plan.detail {
+                        Text(detail)
+                            .font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                ForEach(plan.actions ?? []) { action in
+                    Button(action.title) { account.open(action) }
+                }
+            }
+        }
+    }
+
     // MARK: - Privacy
 
     private var privacySection: some View {
-        Section("What is sent") {
+        KitSection(title: "What is sent") {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Signed out, nothing is sent and FnSpeak works entirely on this Mac.")
                 Text("Signed in, the server gets your email address and, when you use them:")

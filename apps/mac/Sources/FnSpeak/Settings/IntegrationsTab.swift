@@ -10,14 +10,13 @@ struct IntegrationsTab: View {
     @State private var calendarAccess = CalendarNotes.hasAccess
 
     var body: some View {
-        Form {
+        KitForm {
             appleNotes
             markdown
             calendar
             webhook
             shortcuts
         }
-        .formStyle(.grouped)
         .onAppear {
             secret = prefs.webhookSecret ?? ""
             calendarAccess = CalendarNotes.hasAccess
@@ -27,7 +26,7 @@ struct IntegrationsTab: View {
     // MARK: - Sections
 
     private var appleNotes: some View {
-        Section("Apple Notes") {
+        KitSection(title: "Apple Notes") {
             TextField("Folder", text: $prefs.appleNotesFolder, prompt: Text("FnSpeak"))
             Text("**Send to Apple Notes** on a note or a meeting copies it into this folder of your default Notes account. The folder is made if it's missing. macOS asks once whether FnSpeak may control Notes.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -36,7 +35,7 @@ struct IntegrationsTab: View {
     }
 
     private var markdown: some View {
-        Section("Obsidian and Markdown") {
+        KitSection(title: "Obsidian and Markdown") {
             LabeledContent("Notes") {
                 HStack {
                     Text(prefs.notesExportFolder.isEmpty ? "Off" : abbreviated(prefs.notesExportFolder))
@@ -59,7 +58,7 @@ struct IntegrationsTab: View {
     }
 
     private var calendar: some View {
-        Section("Calendar") {
+        KitSection(title: "Calendar") {
             Toggle("Add a summary to the calendar event when a meeting ends", isOn: $prefs.calendarAppendSummary)
             Text("Only for meetings started during an event. A few lines of the summary and a **fnspeak://** link back to the meeting go at the end of the event's notes. If the calendar syncs, other attendees may see them.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -81,7 +80,7 @@ struct IntegrationsTab: View {
     }
 
     private var webhook: some View {
-        Section("Webhook") {
+        KitSection(title: "Webhook") {
             TextField("URL", text: $prefs.webhookURL, prompt: Text("https://example.com/hooks/fnspeak"))
             SecureField("Secret", text: $secret)
                 .onSubmit { prefs.webhookSecret = secret }
@@ -108,7 +107,7 @@ struct IntegrationsTab: View {
     }
 
     private var shortcuts: some View {
-        Section("Shortcuts and links") {
+        KitSection(title: "Shortcuts and links") {
             Toggle("Let other apps control FnSpeak with fnspeak:// links", isOn: $prefs.urlCommandsEnabled)
             VStack(alignment: .leading, spacing: 3) {
                 ForEach(Self.links, id: \.0) { link, what in

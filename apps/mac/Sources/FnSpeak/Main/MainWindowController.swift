@@ -16,6 +16,9 @@ final class MainWindowController: NSWindowController {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.title = "FnSpeak"
+        window.backgroundColor = Theme.pageNSColor
+        window.toolbarStyle = .unified
+        window.titlebarSeparatorStyle = .none
         window.isReleasedWhenClosed = false
         window.setContentSize(NSSize(width: 1000, height: 700))
         if !window.setFrameUsingName("FnSpeakMain") { window.center() }
@@ -56,9 +59,18 @@ struct MainView: View {
             Divider().ignoresSafeArea()
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
+                .background(Theme.page.ignoresSafeArea())
         }
         .frame(minWidth: 940, minHeight: 560)
+        .skinned()
+        // Notes and Meetings put buttons in the window's toolbar, which makes
+        // the title bar taller and moves the close, minimise and zoom buttons.
+        // An empty item keeps the toolbar there on every page, so they stay put.
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
+            }
+        }
     }
 
     @ViewBuilder private var detail: some View {
@@ -109,6 +121,7 @@ final class SettingsWindowController: NSWindowController {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.title = "Settings"
+        window.backgroundColor = Theme.pageNSColor
         window.isReleasedWhenClosed = false
         window.setContentSize(NSSize(width: 820, height: 620))
         if !window.setFrameUsingName("FnSpeakSettingsWindow") { window.center() }
@@ -134,7 +147,7 @@ struct SettingsWindowView: View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 1) {
                 Text("Settings")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Theme.Fonts.heading)
                     .padding(.leading, 8)
                     .padding(.top, Theme.titlebarInset + 4)
                     .padding(.bottom, 10)
@@ -147,7 +160,7 @@ struct SettingsWindowView: View {
             }
             .padding(.horizontal, 8)
             .frame(width: 190)
-            .background(SidebarBackground())
+            .background(Theme.sunk)
             Divider()
             Page(title: router.settingsPage.title, subtitle: router.settingsPage.subtitle) {
                 SettingsView(tab: router.settingsPage, engine: engine, indexer: indexer)
@@ -155,9 +168,10 @@ struct SettingsWindowView: View {
             }
             .id(router.settingsPage)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(Theme.page)
         }
         .ignoresSafeArea()
         .frame(minWidth: 760, minHeight: 500)
+        .skinned()
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 
 /// The optional FnSpeak account: signing in by magic link, the user's
@@ -17,8 +18,12 @@ final class AccountController: ObservableObject {
 
     @Published private(set) var phase: Phase
     @Published var me: ServerClient.Me?
+    /// Nil when signed out, or when the server has no plans to show.
+    @Published private(set) var plan: ServerClient.Plan?
     @Published private(set) var teamDetails: [String: ServerClient.TeamDetail] = [:]
     @Published private(set) var pendingInvites: [String: [ServerClient.Invite]] = [:]
+    /// The server can sign people in with Google.
+    @Published private(set) var offersGoogle = false
     @Published private(set) var busy = false
     @Published var error: String?
     @Published var notice: String?
@@ -30,7 +35,23 @@ final class AccountController: ObservableObject {
 
     private init() {
         phase = Keychain.read(account: Preferences.accountKeychainAccount) == nil ? .signedOut : .signedIn
+        if ProcessInfo.processInfo.environment["FNSPEAK_PREVIEW_SIGNIN"] != nil {
+            // Dev hook: draw the account page signed out, with Google on offer.
+            phase = .signedOut
+            offersGoogle = true
+        } else if Self.previewsPlan {
+            phase = .signedIn
+            plan = ServerClient.Plan(
+                summary: "Example plan",
+                detail: "128 of 1,000 used this month. Resets December 1.",
+                progress: 0.128,
+                actions: [.init(id: "change", title: "Change plan")]
+            )
+        }
     }
+
+    /// Dev hook: draw the account page signed in, on a made-up plan.
+    private static let previewsPlan = ProcessInfo.processInfo.environment["FNSPEAK_PREVIEW_PLAN"] != nil
 
     var isSignedIn: Bool { phase == .signedIn }
     var email: String? { me?.user.email ?? prefs.accountEmail }
@@ -80,7 +101,63 @@ final class AccountController: ObservableObject {
         }
     }
 
+    // MARK: - Google
+
+    /// This Mac's half of a Google sign-in in progress. It never leaves the
+    /// app except to collect the finished sign-in from the server.
+    private var googleVerifier: String?
+
+    /// Ask the server whether it offers Google sign-in.
+    func checkSignInProviders() {
+        guard ProcessInfo.processInfo.environment["FNSPEAK_PREVIEW_SIGNIN"] == nil else { return }
+        guard !isSignedIn, let client else { return offersGoogle = false }
+        Task {
+            let providers = try? await client.signInProviders()
+            self.offersGoogle = providers?.google ?? false
+        }
+    }
+
+    /// Open the browser to sign in with Google. The browser is given only a
+    /// hash of a secret made up here, so nothing it sees can sign anyone in.
+    func signInWithGoogle() {
+        guard let base = ServerClient.normalize(prefs.serverURL) else { return error = ServerError.invalidURL.errorDescription }
+        var bytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+            return error = "Couldn't start Google sign-in. Try the emailed link instead."
+        }
+        let verifier = "fsg_" + bytes.map { String(format: "%02x", $0) }.joined()
+        let challenge = SHA256.hash(data: Data(verifier.utf8)).map { String(format: "%02x", $0) }.joined()
+        var components = URLComponents(url: base.appendingPathComponent("v1/auth/google"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "challenge", value: challenge)]
+        guard let url = components?.url else { return error = ServerError.invalidURL.errorDescription }
+        googleVerifier = verifier
+        error = nil
+        notice = "Finish signing in with Google in your browser, then come back here."
+        NSWorkspace.shared.open(url)
+    }
+
+    /// Collect a Google sign-in if the browser has finished it. Called when
+    /// the browser hands back to the app and when the app comes forward.
+    func finishGoogleSignIn() {
+        guard let verifier = googleVerifier, !isSignedIn, let client else { return }
+        Task {
+            do {
+                let verified = try await client.verify(linkToken: verifier, deviceName: Self.deviceName)
+                var signedIn = client
+                signedIn.token = verified.token
+                let me = try await signedIn.me()
+                self.googleVerifier = nil
+                self.didSignIn(token: verified.token, tokenId: verified.tokenId, me: me)
+            } catch ServerError.rejected {
+                // Not finished in the browser yet. Try again next time.
+            } catch {
+                Log.error("Google sign-in: \(error.localizedDescription)")
+            }
+        }
+    }
+
     func cancelSignIn() {
+        googleVerifier = nil
         phase = .signedOut
         notice = nil
         error = nil
@@ -93,6 +170,7 @@ final class AccountController: ObservableObject {
         prefs.accountTokenId = tokenId
         self.me = me
         phase = .signedIn
+        refresh()
         notice = "Signed in as \(me.user.email)."
         Log.info("Signed in to \(prefs.serverURL)")
         NotificationCenter.default.post(name: .accountChanged, object: self)
@@ -106,6 +184,7 @@ final class AccountController: ObservableObject {
         prefs.accountUserId = nil
         prefs.accountTokenId = nil
         me = nil
+        plan = nil
         teamDetails = [:]
         pendingInvites = [:]
         phase = .signedOut
@@ -133,15 +212,31 @@ final class AccountController: ObservableObject {
         phase = .signedOut
         error = nil
         notice = nil
+        googleVerifier = nil
+        checkSignInProviders()
     }
 
     // MARK: - Account details
 
     func refresh() {
-        guard isSignedIn else { return }
+        guard isSignedIn, !Self.previewsPlan else { return }
         run(quiet: true) { client in
             self.me = try await client.me()
+            self.plan = try? await client.plan()
             for team in self.sharedTeams where team.canManage { try await self.loadTeam(team.id, client: client) }
+        }
+    }
+
+    /// Open the page for something the server offers on the plan, such as
+    /// changing it. It always opens in the browser.
+    func open(_ action: ServerClient.Plan.Action) {
+        run { client in
+            let url = try await client.planLink(for: action)
+            // A web page and nothing else: never a file or another app's URL scheme.
+            let local = url.scheme == "http" && ["localhost", "127.0.0.1"].contains(url.host ?? "")
+            guard url.scheme == "https" || local else { throw ServerError.unexpectedResponse }
+            NSWorkspace.shared.open(url)
+            self.notice = "Finish in your browser. This page updates when you come back."
         }
     }
 

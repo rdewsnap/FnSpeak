@@ -6,7 +6,7 @@ struct HotkeyChooser: View {
     @ObservedObject var prefs = Preferences.shared
 
     var body: some View {
-        Picker("Dictate with", selection: $prefs.hotkeyPreset) {
+        KitPicker("Dictate with", selection: $prefs.hotkeyPreset) {
             ForEach(HotkeyPreset.allCases) { Text($0.label).tag($0.rawValue) }
         }
         if prefs.hotkeyPreset == HotkeyPreset.custom.rawValue {
@@ -19,7 +19,7 @@ struct HotkeyChooser: View {
                 .font(.callout).foregroundStyle(.secondary)
         }
 
-        Picker("Behavior", selection: $prefs.triggerStyle) {
+        KitPicker("Behavior", selection: $prefs.triggerStyle) {
             Text("Hold to talk").tag("hold")
             Text("Press to start, press to stop").tag("toggle")
             Text("Both").tag("both")

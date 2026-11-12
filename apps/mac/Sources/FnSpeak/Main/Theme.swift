@@ -8,7 +8,8 @@ enum Theme {
     static let pageWidth: CGFloat = 600
     /// Space either side of the column; matches a grouped form's own inset.
     static let gutter: CGFloat = 20
-    static let corner: CGFloat = 10
+    /// Cards and wells. The kit's medium radius, under its older name.
+    static var corner: CGFloat { Radius.medium }
     static let sidebarWidth: CGFloat = 208
     /// Room for the traffic lights above the first row of content.
     static let titlebarInset: CGFloat = 38
@@ -23,8 +24,8 @@ struct Card<Content: View>: View {
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).fill(Color(nsColor: .controlBackgroundColor)))
-            .overlay(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).fill(Theme.raised))
+            .overlay(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
     }
 }
 
@@ -39,8 +40,8 @@ struct Keycap: View {
             .padding(.horizontal, size * 0.55)
             .padding(.vertical, size * 0.22)
             .frame(minWidth: size * 2)
-            .background(RoundedRectangle(cornerRadius: size * 0.42, style: .continuous).fill(Color(nsColor: .controlBackgroundColor)))
-            .overlay(RoundedRectangle(cornerRadius: size * 0.42, style: .continuous).strokeBorder(Color.primary.opacity(0.18), lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: size * 0.42, style: .continuous).fill(Theme.raised))
+            .overlay(RoundedRectangle(cornerRadius: size * 0.42, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
             .shadow(color: .black.opacity(0.08), radius: 0, x: 0, y: 1)
             .accessibilityLabel(label)
     }
@@ -55,9 +56,9 @@ struct Page<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.system(size: 22, weight: .semibold))
+                Text(title).font(Theme.Fonts.title)
                 if let subtitle {
-                    Text(subtitle).font(.callout).foregroundStyle(.secondary)
+                    Text(subtitle).font(Theme.Fonts.support).foregroundStyle(Theme.textSoft)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -72,19 +73,6 @@ struct Page<Content: View>: View {
         .frame(maxWidth: Theme.pageWidth + Theme.gutter * 2)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-}
-
-/// The sidebar's translucent backing.
-struct SidebarBackground: NSViewRepresentable {
-    func makeNSView(context: NSViewRepresentableContext<SidebarBackground>) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .sidebar
-        view.blendingMode = .behindWindow
-        view.state = .followsWindowActiveState
-        return view
-    }
-
-    func updateNSView(_ view: NSVisualEffectView, context: NSViewRepresentableContext<SidebarBackground>) {}
 }
 
 /// App icons by bundle id, looked up once each.

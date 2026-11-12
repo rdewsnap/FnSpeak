@@ -6,9 +6,9 @@ struct StyleTab: View {
     @ObservedObject var prefs = Preferences.shared
 
     var body: some View {
-        Form {
+        KitForm {
             if prefs.mode != "local" && prefs.mode != "cloud" {
-                Section {
+                KitSection {
                     HStack {
                         Label("Style needs a cleanup model. Yours is set to \(EngineSummary.modeLabel(prefs.mode)).", systemImage: "info.circle")
                             .foregroundStyle(.secondary)
@@ -18,7 +18,7 @@ struct StyleTab: View {
                 }
             }
 
-            Section("By kind of app") {
+            KitSection(title: "By kind of app") {
                 ForEach(AppCategory.allCases) { category in
                     Picker(category.label, selection: styleBinding(for: category)) {
                         ForEach(WritingStyle.allCases) { Text("\($0.label) — \($0.detail)").tag($0) }
@@ -28,7 +28,7 @@ struct StyleTab: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
 
-            Section("For one app") {
+            KitSection(title: "For one app") {
                 if prefs.styleOverrides.isEmpty {
                     Text("Apps without an override use their kind's style.").foregroundStyle(.secondary)
                 }
@@ -36,7 +36,7 @@ struct StyleTab: View {
                     HStack {
                         AppLabel(bundleId: bundleId)
                         Spacer()
-                        Picker("", selection: overrideBinding(bundleId)) {
+                        KitPicker("", selection: overrideBinding(bundleId)) {
                             ForEach(WritingStyle.allCases) { Text($0.label).tag($0) }
                         }
                         .labelsHidden().fixedSize()
@@ -49,7 +49,6 @@ struct StyleTab: View {
                 }
             }
         }
-        .formStyle(.grouped)
     }
 
     private func styleBinding(for category: AppCategory) -> Binding<WritingStyle> {

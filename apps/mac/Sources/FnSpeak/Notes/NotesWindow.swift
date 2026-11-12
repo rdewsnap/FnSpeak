@@ -186,19 +186,24 @@ struct NotesRootView: View {
     var body: some View {
         NavigationSplitView {
             NotesListView(model: model)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    KitField(prompt: "Search notes and meetings", text: $model.query, symbol: "magnifyingglass")
+                        .padding(.horizontal, Theme.Space.m)
+                        .padding(.vertical, Theme.Space.s)
+                        .background(Theme.page)
+                }
                 .navigationSplitViewColumnWidth(min: 220, ideal: 270, max: 400)
         } detail: {
             detail
         }
-        .searchable(text: $model.query, placement: .sidebar, prompt: "Search notes and meetings")
         .toolbar(removing: .sidebarToggle)
-        .navigationTitle("Notes")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button { model.newNote() } label: { Label("New Note", systemImage: "square.and.pencil") }
-                    .keyboardShortcut("n", modifiers: .command)
-                    .help("New note (⌘N)")
-            }
+        // No navigation title: it would be drawn in the window's top bar,
+        // beside the close buttons. The window sets its own name.
+        .kitHeader("Notes") {
+            Button { model.newNote() } label: { Label("New note", systemImage: "square.and.pencil") }
+                .buttonStyle(.kitPrimary)
+                .keyboardShortcut("n", modifiers: .command)
+                .help("New note (⌘N)")
         }
         .overlay(alignment: .bottom) {
             if let note = model.deleted {
@@ -208,6 +213,7 @@ struct NotesRootView: View {
             }
         }
         .frame(minWidth: 620, minHeight: 420)
+        .tint(Theme.accent)
     }
 
     @ViewBuilder private var detail: some View {
@@ -273,11 +279,10 @@ private struct MeetingPreview: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(24)
                 }
-                .toolbar {
-                    ToolbarItem {
-                        Button { Pasteboard.copy(markdown) } label: { Label("Copy as Markdown", systemImage: "doc.on.doc") }
-                            .help("Copy as Markdown")
-                    }
+                .overlay(alignment: .topTrailing) {
+                    Button { Pasteboard.copy(markdown) } label: { Label("Copy as Markdown", systemImage: "doc.on.doc") }
+                        .help("Copy as Markdown")
+                        .padding(Theme.Space.m)
                 }
             } else if failed {
                 Text("This meeting couldn't be loaded.").foregroundStyle(.secondary)

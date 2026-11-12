@@ -9,8 +9,8 @@ struct MeetingsTab: View {
     private static let retentionChoices = [0, 7, 30, 90, 365]
 
     var body: some View {
-        Form {
-            Section("Calendar") {
+        KitForm {
+            KitSection(title: "Calendar") {
                 HStack {
                     Label(upcoming.hasCalendarAccess ? "Connected to the calendars on this Mac" : "Not connected",
                           systemImage: upcoming.hasCalendarAccess ? "checkmark.circle.fill" : "calendar.badge.exclamationmark")
@@ -30,7 +30,7 @@ struct MeetingsTab: View {
                 }
             }
 
-            Section("Starting") {
+            KitSection(title: "Starting") {
                 Toggle("Suggest recording when a call starts", isOn: $prefs.meetingAutoDetect)
                 Text("When Zoom, Teams, FaceTime, Slack or a Meet tab looks like a call during a calendar event, FnSpeak sends a notification with a Start button. It never starts recording by itself.")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -39,7 +39,7 @@ struct MeetingsTab: View {
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
 
-            Section("Audio") {
+            KitSection(title: "Audio") {
                 Toggle("Record the other side of the call (system audio)", isOn: $prefs.meetingSystemAudio)
                 if prefs.meetingSystemAudio {
                     HStack(alignment: .firstTextBaseline) {
@@ -61,14 +61,14 @@ struct MeetingsTab: View {
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
 
-            Section("Saving") {
+            KitSection(title: "Saving") {
                 LabeledContent("Export folder") {
                     HStack {
                         Text(abbreviated(prefs.meetingExportFolder)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                         Button("Choose…", action: chooseFolder)
                     }
                 }
-                Picker("Delete transcripts after", selection: $prefs.meetingRetentionDays) {
+                KitPicker("Delete transcripts after", selection: $prefs.meetingRetentionDays) {
                     ForEach(Self.retentionChoices, id: \.self) { days in
                         Text(days == 0 ? "Never" : days == 365 ? "1 year" : "\(days) days").tag(days)
                     }
@@ -77,12 +77,11 @@ struct MeetingsTab: View {
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
 
-            Section("Summaries") {
+            KitSection(title: "Summaries") {
                 Text("Summaries are written by the cleanup model you chose in Cleanup, and follow the language of the transcript. With Filter only or Raw there's no model, so the transcript is saved with a placeholder summary; switch modes, then use Re-summarize.")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
-        .formStyle(.grouped)
         .onAppear { upcoming.refresh() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             upcoming.refresh()

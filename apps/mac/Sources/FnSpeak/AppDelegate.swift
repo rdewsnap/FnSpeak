@@ -39,6 +39,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Log.info("Permissions: microphone \(Self.microphoneState), accessibility \(ContextReader.requestAccessibility(prompt: false) ? "allowed" : "off")")
         quitOnTerminationSignal()
         MainMenu.install(target: self, settings: #selector(openSettings), about: #selector(openAbout))
+        if let folder = ProcessInfo.processInfo.environment["FNSPEAK_KIT_GALLERY"] {
+            return KitGallery.render(into: URL(fileURLWithPath: folder, isDirectory: true))
+        }
         if let directory = DevTools.snapshotDirectory {
             return DevTools.run(engine: engine, indexer: indexer, into: directory)
         }
@@ -138,6 +141,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
+            // The browser saying a sign-in is ready to collect. It carries
+            // nothing, so it isn't one of the commands other apps can send.
+            if url.scheme == "fnspeak", url.host == "signin" {
+                AccountController.shared.finishGoogleSignIn()
+                continue
+            }
             whenEngineReady { URLCommands.handle(url) }
         }
     }

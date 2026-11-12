@@ -54,7 +54,8 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
 extension SettingsTab {
     /// The top of the sidebar: what you use, as opposed to what you set once.
-    static let main: [SettingsTab] = [.home, .history, .meetingsPage, .notesPage, .vocabulary, .snippets, .style]
+    /// History has no row of its own: Home shows the latest and links to the rest.
+    static let main: [SettingsTab] = [.home, .meetingsPage, .notesPage, .vocabulary, .snippets, .style]
     static let settings: [SettingsTab] = [.general, .dictation, .cleanup, .context, .notes, .meetings, .integrations, .account, .privacy, .advanced, .about]
 
     /// One line under the page title.
@@ -71,7 +72,7 @@ extension SettingsTab {
         case .notes: return "The notes bar and where notes are kept."
         case .meetings: return "Recording, transcripts and summaries."
         case .integrations: return "Apple Notes, webhooks, calendar and Shortcuts."
-        case .account: return "Optional. Sync notes and share a glossary with a team."
+        case .account: return "Optional. Everything works on this Mac without one."
         case .privacy: return "What stays on this Mac, and what you can delete."
         case .advanced: return "Speech engine, models and troubleshooting."
         case .about: return nil

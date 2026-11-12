@@ -36,7 +36,7 @@ struct SnippetsTab: View {
             }
 
             List {
-                Section("Yours") {
+                KitSection(title: "Yours") {
                     if personal.isEmpty {
                         Text("None of your own yet.").foregroundStyle(.secondary)
                     }
@@ -56,7 +56,7 @@ struct SnippetsTab: View {
                     }
                 }
                 if !fromTeams.isEmpty {
-                    Section("From your teams") {
+                    KitSection(title: "From your teams") {
                         ForEach(fromTeams, id: \.id) { snippet in
                             row(snippet) {
                                 if snippet.canEdit {
@@ -74,7 +74,7 @@ struct SnippetsTab: View {
             }
             .listStyle(.inset)
             .scrollContentBackground(.hidden)
-            .background(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).fill(Color(nsColor: .controlBackgroundColor)))
+            .background(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).fill(Theme.raised))
             .clipShape(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
             }

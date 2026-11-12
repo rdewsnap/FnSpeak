@@ -10,7 +10,7 @@ struct Sidebar: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 7) {
                 Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 20, height: 20)
-                Text("FnSpeak").font(.system(size: 13, weight: .semibold))
+                Text("FnSpeak").font(Theme.Fonts.heading)
             }
             .padding(.leading, 16)
             .padding(.top, Theme.titlebarInset + 4)
@@ -42,11 +42,13 @@ struct Sidebar: View {
             Divider()
             status
         }
-        .background(SidebarBackground().ignoresSafeArea())
+        .background(Theme.sunk.ignoresSafeArea())
     }
 
     private func row(_ tab: SettingsTab) -> some View {
-        SidebarRow(title: tab.title, symbol: tab.symbol, selected: router.tab == tab, external: false) {
+        // History is reached from Home, so Home stays lit while it's open.
+        let selected = router.tab == tab || (tab == .home && router.tab == .history)
+        return SidebarRow(title: tab.title, symbol: tab.symbol, selected: selected, external: false) {
             router.tab = tab
         }
     }
@@ -86,7 +88,7 @@ struct SidebarRow: View {
             HStack(spacing: 8) {
                 Image(systemName: symbol)
                     .font(.system(size: 13))
-                    .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(selected ? Theme.accent : Theme.textSoft)
                     .frame(width: 20)
                 Text(title)
                     .font(.system(size: 13, weight: selected ? .medium : .regular))
@@ -102,8 +104,8 @@ struct SidebarRow: View {
             .padding(.horizontal, 8)
             .frame(height: 26)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.primary.opacity(selected ? 0.1 : hovering ? 0.05 : 0))
+                RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
+                    .fill(selected ? Theme.accent.opacity(0.14) : Theme.text.opacity(hovering ? 0.06 : 0))
             )
             .contentShape(Rectangle())
         }

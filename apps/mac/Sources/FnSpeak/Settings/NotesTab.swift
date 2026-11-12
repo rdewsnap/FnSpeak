@@ -10,8 +10,8 @@ struct NotesTab: View {
     @State private var mcpNotice: String?
 
     var body: some View {
-        Form {
-            Section("Notes bar") {
+        KitForm {
+            KitSection(title: "Notes bar") {
                 LabeledContent("Open with") {
                     VStack(alignment: .trailing, spacing: 4) {
                         HotkeyRecorder(hotkey: prefs.notesHotkey) { setShortcut($0) }
@@ -23,7 +23,7 @@ struct NotesTab: View {
                         }
                     }
                 }
-                Picker("Appears", selection: $prefs.notesBarPosition) {
+                KitPicker("Appears", selection: $prefs.notesBarPosition) {
                     Text("Near the pill").tag("pill")
                     Text("Center of the screen").tag("center")
                     Text("Top of the screen").tag("top")
@@ -37,7 +37,7 @@ struct NotesTab: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
 
-            Section("Dictations") {
+            KitSection(title: "Dictations") {
                 Toggle(isOn: $prefs.saveDictationsAsNotes) {
                     HStack(spacing: 6) {
                         Text("Also save every dictation longer than")
@@ -52,7 +52,7 @@ struct NotesTab: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
 
-            Section("Markdown files") {
+            KitSection(title: "Markdown files") {
                 LabeledContent("Export to") {
                     HStack {
                         Text(prefs.notesExportFolder.isEmpty ? "Off" : abbreviated(prefs.notesExportFolder))
@@ -84,7 +84,7 @@ struct NotesTab: View {
                 }
             }
 
-            Section("AI tools") {
+            KitSection(title: "AI tools") {
                 Text("FnSpeak includes **fnspeak-mcp**, a small MCP server that lets Claude Desktop, Claude Code, Cursor and other MCP clients search your notes, meetings and dictation history. It runs on your Mac, opens your data read-only by default and never uses the network.")
                     .font(.callout).foregroundStyle(.secondary)
                 Toggle("Allow AI tools to create notes", isOn: $prefs.mcpAllowWrite)
@@ -123,7 +123,6 @@ struct NotesTab: View {
                 snippet("Claude Code", MCPSetup.claudeCodeCommand(allowWrite: prefs.mcpAllowWrite), id: "code")
             }
         }
-        .formStyle(.grouped)
     }
 
     private func snippet(_ title: String, _ text: String, id: String) -> some View {

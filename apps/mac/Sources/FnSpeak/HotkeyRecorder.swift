@@ -16,7 +16,7 @@ struct HotkeyRecorder: View {
             } label: {
                 Text(model.recording ? "Press a shortcut…" : hotkey.displayName)
                     .frame(minWidth: 130)
-                    .foregroundStyle(model.recording ? Color.accentColor : Color.primary)
+                    .foregroundStyle(model.recording ? Theme.accent : Color.primary)
             }
             if let error = model.error {
                 Text(error).font(.caption).foregroundStyle(.orange)

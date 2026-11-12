@@ -38,6 +38,12 @@ struct MeetingsListView: View {
     var body: some View {
         NavigationSplitView {
             sidebar
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    KitField(prompt: "Search meetings", text: $query, symbol: "magnifyingglass")
+                        .padding(.horizontal, Theme.Space.m)
+                        .padding(.vertical, Theme.Space.s)
+                        .background(Theme.page)
+                }
                 .navigationSplitViewColumnWidth(min: 220, ideal: 270, max: 380)
         } detail: {
             if let meeting = meetings.first(where: { $0.id == selection }) {
@@ -48,22 +54,22 @@ struct MeetingsListView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .searchable(text: $query, placement: .sidebar, prompt: "Search meetings")
         .toolbar(removing: .sidebarToggle)
-        .navigationTitle("Meetings")
+        // No navigation title: it would be drawn in the window's top bar,
+        // beside the close buttons. The window sets its own name.
         .task(id: controller.revision) { reload() }
         .task(id: query) { await runSearch() }
-        .toolbar {
-            ToolbarItem {
-                Button {
-                    controller.requestStart()
-                } label: {
-                    Label(controller.isRecording ? "Show meeting" : "Start meeting", systemImage: "record.circle")
-                }
-                .help(controller.isRecording ? "Show the meeting being recorded" : "Start recording a meeting")
+        .kitHeader("Meetings") {
+            Button {
+                controller.requestStart()
+            } label: {
+                Label(controller.isRecording ? "Show meeting" : "Start meeting", systemImage: "record.circle")
             }
+            .buttonStyle(.kitPrimary)
+            .help(controller.isRecording ? "Show the meeting being recorded" : "Start recording a meeting")
         }
         .frame(minWidth: 620, minHeight: 440)
+        .tint(Theme.accent)
     }
 
     private var sidebar: some View {
@@ -84,6 +90,10 @@ struct MeetingsListView: View {
             }
         }
         .listStyle(.sidebar)
+        // The split view backs this column with the system's see-through
+        // sidebar material. Cover it, so the column is the kit's page colour.
+        .scrollContentBackground(.hidden)
+        .background(Theme.page.ignoresSafeArea())
     }
 
     private struct DayGroup { let day: Date; let title: String; let meetings: [Meeting] }

@@ -11,9 +11,9 @@ struct AdvancedTab: View {
     @AppStorage(ModelLocator.fastModelKey) private var fastModel = ""
 
     var body: some View {
-        Form {
-            Section("Speech engine") {
-                Picker("Engine", selection: $prefs.speechEngine) {
+        KitForm {
+            KitSection(title: "Speech engine") {
+                KitPicker("Engine", selection: $prefs.speechEngine) {
                     Text("Whisper (uses your vocabulary while listening)").tag("whisper")
                     Text("Parakeet (faster)").tag("parakeet")
                 }
@@ -41,8 +41,8 @@ struct AdvancedTab: View {
             }
 
             if prefs.mode == "local" {
-                Section("Fast model") {
-                    Picker("Fast model for simple dictations", selection: $fastModel) {
+                KitSection(title: "Fast model") {
+                    KitPicker("Fast model for simple dictations", selection: $fastModel) {
                         Text("None").tag("")
                         ForEach(ModelLocator.fastModelCandidates, id: \.lastPathComponent) {
                             Text($0.lastPathComponent).tag($0.lastPathComponent)
@@ -54,7 +54,7 @@ struct AdvancedTab: View {
                 }
             }
 
-            Section("This Mac") {
+            KitSection(title: "This Mac") {
                 LabeledContent("Memory", value: String(format: "%.0f GB", hardware.totalMemoryGb))
                 LabeledContent("Chip", value: hardware.appleSilicon ? "Apple silicon" : "Intel")
                 if let gpu = hardware.gpuMemoryGb {
@@ -71,8 +71,8 @@ struct AdvancedTab: View {
                 }
             }
 
-            Section("Troubleshooting") {
-                Picker("Log level", selection: $prefs.logLevel) {
+            KitSection(title: "Troubleshooting") {
+                KitPicker("Log level", selection: $prefs.logLevel) {
                     Text("Errors only").tag("error")
                     Text("Normal").tag("info")
                     Text("Detailed").tag("debug")
@@ -91,7 +91,6 @@ struct AdvancedTab: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
     }
 
     private func label(_ mode: Mode) -> String {

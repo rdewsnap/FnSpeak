@@ -12,7 +12,7 @@ struct TeamsSection: View {
     @State private var inviteRole: [String: String] = [:]
 
     var body: some View {
-        Section("Teams") {
+        KitSection(title: "Teams") {
             if account.sharedTeams.isEmpty {
                 Text("You're not on a team yet. Create one and invite people, or accept an invite someone sent you.")
                     .font(.callout).foregroundStyle(.secondary)
@@ -59,7 +59,7 @@ struct TeamsSection: View {
         if team.canManage {
             HStack {
                 TextField("Email", text: Binding(get: { inviteEmail[team.id] ?? "" }, set: { inviteEmail[team.id] = $0 }), prompt: Text("teammate@example.com"))
-                Picker("", selection: Binding(get: { inviteRole[team.id] ?? "member" }, set: { inviteRole[team.id] = $0 })) {
+                KitPicker("", selection: Binding(get: { inviteRole[team.id] ?? "member" }, set: { inviteRole[team.id] = $0 })) {
                     Text("Member").tag("member")
                     Text("Admin").tag("admin")
                 }

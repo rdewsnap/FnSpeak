@@ -21,7 +21,7 @@ struct VocabularyTab: View {
 
             HStack {
                 TextField("Search", text: $search).textFieldStyle(.roundedBorder)
-                Picker("", selection: $filter) {
+                KitPicker("", selection: $filter) {
                     Text("All sources").tag("all")
                     ForEach(VocabularySource.allCases) { Text($0.label).tag($0.key) }
                 }
@@ -46,7 +46,7 @@ struct VocabularyTab: View {
             }
             .listStyle(.inset)
             .scrollContentBackground(.hidden)
-            .background(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).fill(Color(nsColor: .controlBackgroundColor)))
+            .background(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).fill(Theme.raised))
             .clipShape(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
             .overlay {
@@ -174,7 +174,7 @@ enum VocabularySource: String, CaseIterable, Identifiable {
         case .calendar: return .orange
         case .user: return .gray
         case .correction: return .purple
-        case .learned: return .accentColor
+        case .learned: return Theme.accent
         }
     }
 }

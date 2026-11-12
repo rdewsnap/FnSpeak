@@ -412,7 +412,7 @@ private struct NotesBarView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(
                             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(index == model.selected ? Color.accentColor.opacity(0.22) : Color.clear)
+                                .fill(index == model.selected ? Theme.accent.opacity(0.22) : Color.clear)
                         )
                         .contentShape(Rectangle())
                 }

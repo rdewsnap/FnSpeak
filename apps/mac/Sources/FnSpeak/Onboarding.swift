@@ -42,7 +42,7 @@ struct OnboardingView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(step.title).font(.title2.bold())
+            Text(step.title).font(Theme.Fonts.title)
 
             Group {
                 switch step {
@@ -197,7 +197,7 @@ struct OnboardingView: View {
             Spacer()
             HStack(spacing: 6) {
                 ForEach(Step.allCases, id: \.rawValue) { s in
-                    Circle().fill(s == step ? Color.accentColor : Color.secondary.opacity(0.3)).frame(width: 6, height: 6)
+                    Circle().fill(s == step ? Theme.accent : Color.secondary.opacity(0.3)).frame(width: 6, height: 6)
                 }
             }
             Spacer()

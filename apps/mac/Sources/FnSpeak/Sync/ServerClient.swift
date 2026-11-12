@@ -38,8 +38,27 @@ struct ServerClient {
         try await send("POST", "auth/verify", body: ["token": linkToken, "name": deviceName], authorized: false)
     }
 
+    /// Ways to sign in besides an emailed link. Older servers don't have
+    /// this page; treat that as none.
+    func signInProviders() async throws -> SignInProviders {
+        try await send("GET", "auth/providers", authorized: false)
+    }
+
     func me() async throws -> Me {
         try await send("GET", "me")
+    }
+
+    /// The account's plan, as the server describes it. A server without
+    /// plans has no such page, and the app shows nothing.
+    func plan() async throws -> Plan {
+        try await send("GET", "billing")
+    }
+
+    /// The web page for one of the plan's actions.
+    func planLink(for action: Plan.Action) async throws -> URL {
+        struct Link: Decodable { let url: URL }
+        let link: Link = try await send("POST", "billing/open", body: ["id": action.id])
+        return link.url
     }
 
     func revokeToken(id: String) async throws {
@@ -324,6 +343,24 @@ extension ServerClient {
         let team: TeamRef
         let role: String
         let joined: Bool
+    }
+
+    /// What a server with plans tells the app to show. The wording, the
+    /// numbers and what's on offer are the server's; the app lays them out.
+    struct Plan: Decodable, Equatable {
+        struct Action: Decodable, Equatable, Identifiable {
+            let id: String
+            let title: String
+        }
+        let summary: String?
+        let detail: String?
+        /// 0 to 1: how much of this period's allowance is used.
+        let progress: Double?
+        let actions: [Action]?
+    }
+
+    struct SignInProviders: Decodable, Equatable {
+        let google: Bool?
     }
 
     struct Me: Decodable, Equatable {

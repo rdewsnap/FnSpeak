@@ -7,12 +7,12 @@ struct DictationTab: View {
     @State private var micGranted = AudioRecorder.hasPermission
 
     var body: some View {
-        Form {
-            Section("Hotkey") {
+        KitForm {
+            KitSection(title: "Hotkey") {
                 HotkeyChooser(prefs: prefs)
             }
 
-            Section("While recording") {
+            KitSection(title: "While recording") {
                 Toggle("Press Esc to cancel", isOn: $prefs.escapeCancels)
                 Toggle("Stop after a pause in speech", isOn: $prefs.autoStopEnabled)
                 if prefs.autoStopEnabled {
@@ -29,7 +29,7 @@ struct DictationTab: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
 
-            Section("Spoken commands") {
+            KitSection(title: "Spoken commands") {
                 Text("End a dictation with **scratch that** to drop the last sentence, or **new line** / **new paragraph** to add a break after the text. Pause before a command; in the middle of a sentence the words are typed as usual.")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Toggle("Press Return when a dictation ends with “send it”", isOn: $prefs.allowSendCommand)
@@ -37,8 +37,8 @@ struct DictationTab: View {
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
 
-            Section("Microphone") {
-                Picker("Input", selection: $prefs.microphoneId) {
+            KitSection(title: "Microphone") {
+                KitPicker("Input", selection: $prefs.microphoneId) {
                     Text("System default").tag("")
                     ForEach(choices) { Text($0.name).tag($0.id) }
                 }
@@ -58,7 +58,6 @@ struct DictationTab: View {
                 }
             }
         }
-        .formStyle(.grouped)
         .onAppear {
             inputs = AudioDevices.inputs()
             micGranted = AudioRecorder.hasPermission

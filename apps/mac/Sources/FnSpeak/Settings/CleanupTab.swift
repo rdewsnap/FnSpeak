@@ -14,9 +14,9 @@ struct CleanupTab: View {
     @ObservedObject private var account = AccountController.shared
 
     var body: some View {
-        Form {
-            Section("Mode") {
-                Picker("Cleanup", selection: $prefs.mode) {
+        KitForm {
+            KitSection(title: "Mode") {
+                KitPicker("Cleanup", selection: $prefs.mode) {
                     Text("Local model").tag("local")
                     Text("Cloud").tag("cloud")
                     Text("Filter only").tag("filterOnly")
@@ -34,12 +34,12 @@ struct CleanupTab: View {
             }
 
             if prefs.mode == "local" {
-                Section("Local model") {
+                KitSection(title: "Local model") {
                     let models = ModelLocator.cleanupModelCandidates
                     if models.isEmpty {
                         ModelDownloadRow(item: .cleanup, note: "Runs on this Mac.")
                     } else if models.count > 1 {
-                        Picker("Model", selection: $cleanupModel) {
+                        KitPicker("Model", selection: $cleanupModel) {
                             Text("Automatic (\(ModelLocator.automaticCleanupModelName))").tag("")
                             ForEach(models, id: \.lastPathComponent) { Text($0.lastPathComponent).tag($0.lastPathComponent) }
                         }
@@ -53,7 +53,7 @@ struct CleanupTab: View {
 
             if prefs.mode == "cloud" { cloudSection }
 
-            Section("Writing style") {
+            KitSection(title: "Writing style") {
                 HStack {
                     Text("How it writes in chat, email and code is set in Style.").foregroundStyle(.secondary)
                     Spacer()
@@ -61,7 +61,7 @@ struct CleanupTab: View {
                 }
             }
 
-            Section("Words that always pass through") {
+            KitSection(title: "Words that always pass through") {
                 if keptWords.isEmpty {
                     Text("Words you add by hand in Vocabulary are spelled exactly as written.").foregroundStyle(.secondary)
                 } else {
@@ -71,10 +71,9 @@ struct CleanupTab: View {
             }
 
             if let warning = engine.cleanupWarning {
-                Section { Text(warning).foregroundStyle(.orange) }
+                KitSection { Text(warning).foregroundStyle(.orange) }
             }
         }
-        .formStyle(.grouped)
         .onAppear {
             apiKey = prefs.apiKey ?? ""
             hardware = detectHardware()
@@ -85,8 +84,8 @@ struct CleanupTab: View {
     // MARK: - Cloud
 
     private var cloudSection: some View {
-        Section("Cloud") {
-            Picker("Provider", selection: $prefs.cloudProvider) {
+        KitSection(title: "Cloud") {
+            KitPicker("Provider", selection: $prefs.cloudProvider) {
                 ForEach(Preferences.CloudProviderChoice.allCases.filter { $0 != .fnspeak || account.isSignedIn || prefs.cloudProvider == .fnspeak }) {
                     Text($0.label).tag($0)
                 }

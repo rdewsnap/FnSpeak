@@ -6,7 +6,7 @@ struct SyncSettingsSection: View {
     @ObservedObject var sync = SyncEngine.shared
 
     var body: some View {
-        Section("Sync") {
+        KitSection(title: "Sync") {
             Toggle("Sync notes and meetings", isOn: $prefs.syncEnabled)
                 .onChange(of: prefs.syncEnabled) { if prefs.syncEnabled { sync.requestSync() } }
             Text("Keeps notes and meeting transcripts the same on every Mac signed in to this account, and makes them searchable from AI assistants connected to the server. Notes and meetings stay private unless you share one with a team.")

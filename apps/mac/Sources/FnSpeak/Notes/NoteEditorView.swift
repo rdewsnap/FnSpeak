@@ -26,11 +26,21 @@ struct NoteEditorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // This note's actions, in the page instead of the window's top bar.
+            HStack(spacing: 2) {
+                Spacer()
+                actions
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(KitButtonStyle(kind: .quiet, size: .small))
+            .padding(.horizontal, Theme.Space.m)
+            .padding(.top, Theme.Space.s)
+
             TextField("Title (leave empty to have one written)", text: $title)
                 .textFieldStyle(.plain)
                 .font(.system(size: 20, weight: .semibold))
                 .padding(.horizontal, 20)
-                .padding(.top, 16)
+                .padding(.top, 4)
 
             HStack(spacing: 6) {
                 Image(systemName: "number").foregroundStyle(.tertiary)
@@ -60,8 +70,7 @@ struct NoteEditorView: View {
                     .padding(.vertical, 10)
             }
         }
-        .background(Color(nsColor: .textBackgroundColor))
-        .toolbar { toolbar }
+        .background(Theme.page)
         .onChange(of: title) { changed() }
         .onChange(of: bodyText) { changed() }
         .onChange(of: tagsText) { changed() }
@@ -73,9 +82,9 @@ struct NoteEditorView: View {
         }
     }
 
-    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        ToolbarItemGroup {
-            Toggle(isOn: $preview) { Label("Preview", systemImage: preview ? "eye.fill" : "eye") }
+    @ViewBuilder private var actions: some View {
+        Group {
+            Button { preview.toggle() } label: { Label("Preview", systemImage: preview ? "eye.fill" : "eye") }
                 .help(preview ? "Edit Markdown" : "Show preview")
             Button { model.togglePin(note) } label: {
                 Label(note.pinned ? "Unpin" : "Pin", systemImage: note.pinned ? "pin.slash" : "pin")
@@ -228,7 +237,7 @@ struct MarkdownPreview: View {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Button { onToggleTask?(line) } label: {
                     Image(systemName: done ? "checkmark.square.fill" : "square")
-                        .foregroundStyle(done ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(done ? Theme.accent : Color.secondary)
                 }
                 .buttonStyle(.plain)
                 .disabled(onToggleTask == nil)

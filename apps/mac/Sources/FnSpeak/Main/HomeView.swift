@@ -54,7 +54,7 @@ struct HomeView: View {
                 Keycap(label: keyLabel, size: 20)
                 Text("and talk.")
             }
-            .font(.system(size: 28, weight: .semibold))
+            .font(Theme.Fonts.display)
 
             HStack(spacing: 7) {
                 Circle().fill(EngineSummary.color(engine: engine, prefs: prefs)).frame(width: 8, height: 8)
@@ -77,8 +77,9 @@ struct HomeView: View {
         case .ready:
             let speech = prefs.speechEngine == "parakeet" ? "Parakeet" : "Whisper"
             let mode = engine.cleanupWarning == nil ? prefs.mode : "filterOnly"
-            let place = mode == "cloud" ? "speech stays on this Mac" : "all on this Mac"
-            return "Ready · \(speech) · \(EngineSummary.modeLabel(mode)) · \(place)"
+            // Only worth saying when something does leave: the text, never the audio.
+            let place = mode == "cloud" ? " · speech stays on this Mac" : ""
+            return "Ready · \(speech) · \(EngineSummary.modeLabel(mode))\(place)"
         }
     }
 
@@ -231,7 +232,7 @@ struct HomeView: View {
     private var recentSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Recent").font(.system(size: 13, weight: .semibold))
+                Text("Recent").font(Theme.Fonts.heading)
                 Spacer()
                 if !recent.isEmpty {
                     Button("See all") { SettingsRouter.shared.tab = .history }
@@ -256,7 +257,7 @@ struct HomeView: View {
 
     private var shortcuts: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Shortcuts").font(.system(size: 13, weight: .semibold))
+            Text("Shortcuts").font(Theme.Fonts.heading)
             Card(padding: 0) {
                 VStack(spacing: 0) {
                     ForEach(Array(shortcutRows.enumerated()), id: \.offset) { index, row in
@@ -320,7 +321,7 @@ private struct StatTile: View {
         Card(padding: 14) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(value)
-                    .font(.system(size: 24, weight: .semibold, design: .rounded))
+                    .font(Theme.Fonts.stat)
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)

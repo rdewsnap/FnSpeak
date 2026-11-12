@@ -9,8 +9,8 @@ struct AboutTab: View {
     ]
 
     var body: some View {
-        Form {
-            Section {
+        KitForm {
+            KitSection {
                 HStack(spacing: 14) {
                     Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 56, height: 56)
                     VStack(alignment: .leading, spacing: 2) {
@@ -23,11 +23,11 @@ struct AboutTab: View {
                 Link("Release notes and downloads", destination: AppInfo.releasesURL)
             }
 
-            Section("License") {
+            KitSection(title: "License") {
                 Text("FnSpeak is free software under the GNU Affero General Public License, version 3 or later. © 2026 Ryan Dewsnap.")
             }
 
-            Section("Built with") {
+            KitSection(title: "Built with") {
                 ForEach(Self.credits, id: \.name) { credit in
                     LabeledContent {
                         Text(credit.license).foregroundStyle(.secondary)
@@ -39,6 +39,5 @@ struct AboutTab: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
     }
 }

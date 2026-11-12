@@ -14,6 +14,10 @@ struct NotesListView: View {
             }
         }
         .listStyle(.sidebar)
+        // The split view backs this column with the system's see-through
+        // sidebar material. Cover it, so the column is the kit's page colour.
+        .scrollContentBackground(.hidden)
+        .background(Theme.page.ignoresSafeArea())
         .onDeleteCommand {
             if let note = model.selectedNote { model.delete(note) }
         }

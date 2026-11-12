@@ -112,7 +112,7 @@ struct MeetingSegmentRow: View {
                 .frame(width: 52, alignment: .trailing)
             Text(MeetingController.speakerName(segment.speaker))
                 .font(.callout.weight(.semibold))
-                .foregroundStyle(isMe ? Color.accentColor : Color.orange)
+                .foregroundStyle(isMe ? Theme.accent : Color.orange)
                 .frame(width: 56, alignment: .leading)
             Text(segment.text.isEmpty ? segment.raw : segment.text)
                 .textSelection(.enabled)

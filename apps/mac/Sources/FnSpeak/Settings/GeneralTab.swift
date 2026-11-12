@@ -10,12 +10,12 @@ struct GeneralTab: View {
     @State private var loginError: String?
 
     var body: some View {
-        Form {
+        KitForm {
             if case .failed(let message) = engine.status {
-                Section("Status") { Text(message).foregroundStyle(.red) }
+                KitSection(title: "Status") { Text(message).foregroundStyle(.red) }
             }
 
-            Section("Startup") {
+            KitSection(title: "Startup") {
                 Toggle("Open FnSpeak at login", isOn: loginBinding)
                 if LaunchAtLogin.status == .requiresApproval {
                     HStack {
@@ -29,7 +29,7 @@ struct GeneralTab: View {
                 }
             }
 
-            Section("Appearance") {
+            KitSection(title: "Appearance") {
                 Toggle("Show in menu bar", isOn: Binding(
                     get: { prefs.showInMenuBar },
                     set: { prefs.showInMenuBar = $0; if !$0 { prefs.showInDock = true } }
@@ -42,14 +42,14 @@ struct GeneralTab: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
 
-            Section("Overlay") {
-                Picker("Position", selection: $prefs.overlayPosition) {
+            KitSection(title: "Overlay") {
+                KitPicker("Position", selection: $prefs.overlayPosition) {
                     Text("Bottom center").tag("bottom")
                     Text("Top center").tag("top")
                     Text("Near the pointer").tag("cursor")
                     Text("Hidden").tag("hidden")
                 }
-                Picker("Size", selection: $prefs.overlaySize) {
+                KitPicker("Size", selection: $prefs.overlaySize) {
                     Text("Small").tag("small")
                     Text("Medium").tag("medium")
                     Text("Large").tag("large")
@@ -65,11 +65,11 @@ struct GeneralTab: View {
                 }
             }
 
-            Section("Feedback") {
+            KitSection(title: "Feedback") {
                 Toggle("Play a sound when dictation starts and stops", isOn: $prefs.soundsEnabled)
             }
 
-            Section("Updates") {
+            KitSection(title: "Updates") {
                 LabeledContent("Version", value: "\(AppInfo.version) (\(AppInfo.build))")
                 HStack {
                     Button("Check for Updates") { updates.check() }
@@ -88,7 +88,6 @@ struct GeneralTab: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
         .onAppear { launchAtLogin = LaunchAtLogin.isEnabled }
     }
 
