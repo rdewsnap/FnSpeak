@@ -82,3 +82,37 @@ async fn api_tokens_can_be_created_listed_and_revoked() {
     assert_eq!(status, StatusCode::NO_CONTENT);
     assert_eq!(app.get("/v1/me", mcp_token).await.0, StatusCode::UNAUTHORIZED);
 }
+
+fn last_link_for(app: &TestApp, to: &str) -> String {
+    let outbox = app.outbox.lock().unwrap();
+    let mail = outbox.iter().rev().find(|m| m.to == to).expect("no email sent");
+    let start = mail.body.find("http").expect("no link in email");
+    mail.body[start..].split_whitespace().next().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn magic_link_can_return_to_an_allowed_origin() {
+    let app = TestApp::new().await;
+    let body = json!({ "email": "a@example.com", "return_to": "http://localhost:8080/account/verify" });
+    let (status, _) = app.call("POST", "/v1/auth/magic-link", None, Some(body)).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let link = last_link_for(&app, "a@example.com");
+    assert!(link.starts_with("http://localhost:8080/account/verify?token=fsl_"), "{link}");
+}
+
+#[tokio::test]
+async fn magic_link_ignores_an_unknown_return_origin() {
+    let app = TestApp::new().await;
+    let body = json!({ "email": "a@example.com", "return_to": "https://evil.example/verify" });
+    app.call("POST", "/v1/auth/magic-link", None, Some(body)).await;
+    let link = last_link_for(&app, "a@example.com");
+    assert!(link.starts_with("http://localhost:8080/v1/auth/verify?token=fsl_"), "{link}");
+}
+
+#[tokio::test]
+async fn magic_link_rejects_a_return_url_with_a_query() {
+    let app = TestApp::new().await;
+    let body = json!({ "email": "a@example.com", "return_to": "http://localhost:8080/account/verify?x=1" });
+    let (status, _) = app.call("POST", "/v1/auth/magic-link", None, Some(body)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

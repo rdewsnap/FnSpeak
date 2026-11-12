@@ -128,6 +128,30 @@ impl FromRequestParts<AppState> for ClientIp {
 #[derive(Deserialize)]
 pub struct LinkRequest {
     email: String,
+    /// Page the link should open instead of this server's verify page, for a
+    /// web front end that exchanges the token itself. Honoured only when its
+    /// origin is one of `FNSPEAK_CORS_ORIGINS`; otherwise the server's own
+    /// page is used so the link can never point somewhere unexpected.
+    #[serde(default)]
+    return_to: Option<String>,
+}
+
+/// Where the emailed link points, without the `?token=` part.
+fn link_target(config: &crate::Config, return_to: Option<&str>) -> ApiResult<String> {
+    let own = format!("{}/v1/auth/verify", config.base_url);
+    let Some(raw) = return_to.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(own);
+    };
+    let url = reqwest::Url::parse(raw).map_err(|_| ApiError::bad("return_to must be an absolute URL"))?;
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err(ApiError::bad("return_to can't have a query string or fragment"));
+    }
+    let origin = url.origin().ascii_serialization();
+    if config.cors_origins.iter().any(|o| o.trim_end_matches('/') == origin) {
+        Ok(raw.to_string())
+    } else {
+        Ok(own)
+    }
 }
 
 /// `POST /v1/auth/magic-link`. Always answers 202 so the endpoint can't be
@@ -152,7 +176,7 @@ pub async fn request_link(
             args![hash_token(&state.config.secret, &token), &email, now, now + LINK_TTL_MS],
         )
         .await?;
-    let link = format!("{}/v1/auth/verify?token={token}", state.config.base_url);
+    let link = format!("{}?token={token}", link_target(&state.config, req.return_to.as_deref())?);
     state
         .mailer
         .send(Mail {
