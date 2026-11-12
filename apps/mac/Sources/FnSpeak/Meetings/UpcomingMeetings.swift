@@ -86,6 +86,7 @@ extension MeetingCalendar {
         return upcomingStore.events(matching: predicate)
             .filter { event in
                 !event.isAllDay && event.endDate > now && event.status != .canceled && event.availability != .free
+                    && CalendarAccounts.isUsed(event.calendar)
                     && !(event.attendees ?? []).contains { $0.isCurrentUser && $0.participantStatus == .declined }
             }
             .sorted { $0.startDate < $1.startDate }

@@ -23,10 +23,10 @@ struct MeetingsTab: View {
                 Text("FnSpeak reads the calendars in the macOS Calendar app, on this Mac only. It uses them to name a meeting, list who's in it, offer to record when a call starts, and show the next meeting with its join link in the menu bar.")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack {
-                    Text("For Google or Outlook calendars, add the account to macOS with Calendars switched on.")
+                    Text("Google and Outlook calendars are set up under Connectors.")
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     Spacer()
-                    Button("Internet Accounts…") { UpcomingMeetings.openInternetAccounts() }
+                    Button("Open Connectors") { SettingsRouter.shared.tab = .integrations }
                 }
             }
 

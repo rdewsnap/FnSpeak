@@ -16,6 +16,8 @@ import SwiftUI
 ///   FNSPEAK_PREVIEW_MEETING=1     draw the app with a meeting about to start
 ///   FNSPEAK_PREVIEW_PLAN=1        draw the account page signed in, on a made-up plan
 ///   FNSPEAK_PREVIEW_SIGNIN=1      draw the account page signed out, with Google on offer
+///   FNSPEAK_PREVIEW_CALENDARS=1   draw Connectors with a made-up Google account
+///                                 ("refused": as if calendars were switched off)
 ///   FNSPEAK_KIT_GALLERY=/some/dir draw the design kit's gallery sheets there
 ///                                 (light and dark) and quit, without loading anything
 ///   FNSPEAK_DATA_DIR=/some/dir    use this instead of Application Support

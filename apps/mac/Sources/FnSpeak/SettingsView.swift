@@ -20,7 +20,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .context: return "Context"
         case .notes: return "Notes"
         case .meetings: return "Meetings"
-        case .integrations: return "Integrations"
+        case .integrations: return "Connectors"
         case .account: return "Account"
         case .privacy: return "Privacy"
         case .advanced: return "Advanced"
@@ -71,7 +71,7 @@ extension SettingsTab {
         case .context: return "What FnSpeak reads to get names and tone right."
         case .notes: return "The notes bar and where notes are kept."
         case .meetings: return "Recording, transcripts and summaries."
-        case .integrations: return "Apple Notes, webhooks, calendar and Shortcuts."
+        case .integrations: return "Calendars, AI assistants and where your notes can go."
         case .account: return "Optional. Everything works on this Mac without one."
         case .privacy: return "What stays on this Mac, and what you can delete."
         case .advanced: return "Speech engine, models and troubleshooting."
@@ -134,7 +134,7 @@ struct SettingsView: View {
             case .context: ContextTab(engine: engine, indexer: indexer)
             case .notes: NotesTab()
             case .meetings: MeetingsTab()
-            case .integrations: IntegrationsTab()
+            case .integrations: ConnectorsTab()
             case .account: AccountTab()
             case .privacy: PrivacyTab(engine: engine)
             case .advanced: AdvancedTab(engine: engine)

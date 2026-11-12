@@ -2,15 +2,20 @@ import AppKit
 import EventKit
 import SwiftUI
 
-struct IntegrationsTab: View {
+struct ConnectorsTab: View {
     @ObservedObject var prefs = Preferences.shared
     @State private var secret = ""
     @State private var testing = false
     @State private var testResult: (ok: Bool, message: String)?
     @State private var calendarAccess = CalendarNotes.hasAccess
+    @ObservedObject private var calendars = CalendarAccountList.shared
+    /// The calendar card whose Connect was just pressed, to say what to do next.
+    @State private var guiding: CalendarAccount.Service?
+    @State private var assistantConnected = MCPSetup.isConnected
 
     var body: some View {
         KitForm {
+            connectors
             appleNotes
             markdown
             calendar
@@ -20,7 +25,86 @@ struct IntegrationsTab: View {
         .onAppear {
             secret = prefs.webhookSecret ?? ""
             calendarAccess = CalendarNotes.hasAccess
+            assistantConnected = MCPSetup.isConnected
+            calendars.start()
         }
+        .onChange(of: calendars.accounts) { _, _ in
+            calendarAccess = CalendarNotes.hasAccess
+            // The account that was being added has arrived.
+            if let guiding, !calendars.accounts(for: guiding).isEmpty { self.guiding = nil }
+        }
+    }
+
+    // MARK: - Connectors
+
+    private var connectors: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
+            calendarCard(.google, name: "Google Calendar",
+                         detail: "Reminders and join links for the meetings on your Google calendar.")
+            calendarCard(.outlook, name: "Outlook Calendar",
+                         detail: "Reminders and join links for Outlook and Microsoft 365 meetings.")
+            if !calendars.accounts(for: .other).isEmpty {
+                calendarCard(.other, name: "Apple Calendar",
+                             detail: "iCloud and the other calendars already on this Mac.")
+            }
+            ConnectorCard(symbol: "sparkles", name: "AI assistants", tags: [],
+                          detail: "Let Claude and other MCP clients search your notes and meetings. Runs on this Mac.") {
+                if assistantConnected { ConnectedMark() }
+                Button(assistantConnected ? "Manage" : "Set up") { SettingsRouter.shared.tab = .notes }
+            }
+            Text("Calendars are read through macOS, on this Mac. FnSpeak never signs in to Google or Microsoft, and your events aren't sent anywhere.")
+                .font(Theme.Fonts.support).foregroundStyle(Theme.textSoft)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, 2)
+        }
+    }
+
+    private func calendarCard(_ service: CalendarAccount.Service, name: String, detail: String) -> some View {
+        let accounts = calendars.accounts(for: service)
+        let used = accounts.filter { !prefs.calendarIgnoredAccounts.contains($0.id) }
+        return ConnectorCard(symbol: "calendar", name: name, tags: accounts.map(\.label), detail: detail,
+                             note: note(for: service, connected: !accounts.isEmpty)) {
+            if accounts.isEmpty {
+                Button("Connect") {
+                    guiding = calendars.access == .allowed ? service : nil
+                    calendars.connect()
+                }
+            } else {
+                if used.isEmpty { KitTag(text: "Off") } else { ConnectedMark() }
+                Menu {
+                    ForEach(accounts) { account in
+                        let off = prefs.calendarIgnoredAccounts.contains(account.id)
+                        Button(off ? "Use \(account.label)" : "Stop using \(account.label)") { setUsed(account, off) }
+                    }
+                    Divider()
+                    Button("Manage in System Settings…") { UpcomingMeetings.openInternetAccounts() }
+                } label: {
+                    Image(systemName: "ellipsis").frame(width: 26, height: 26).contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .accessibilityLabel("\(name) options")
+            }
+        }
+    }
+
+    /// What to do next, under a calendar card that isn't connected yet.
+    private func note(for service: CalendarAccount.Service, connected: Bool) -> String? {
+        guard !connected else { return nil }
+        if calendars.access == .refused {
+            return "FnSpeak isn't allowed to read calendars. Connect opens the setting to switch it on."
+        }
+        guard guiding == service else { return nil }
+        let account = service == .google ? "Google" : "Microsoft Exchange"
+        return "In System Settings, choose Add Account, then \(account), and leave Calendars switched on. This card updates when it's there."
+    }
+
+    private func setUsed(_ account: CalendarAccount, _ used: Bool) {
+        var ignored = prefs.calendarIgnoredAccounts.filter { $0 != account.id }
+        if !used { ignored.append(account.id) }
+        prefs.calendarIgnoredAccounts = ignored
+        UpcomingMeetings.shared.refresh()
     }
 
     // MARK: - Sections
@@ -58,7 +142,7 @@ struct IntegrationsTab: View {
     }
 
     private var calendar: some View {
-        KitSection(title: "Calendar") {
+        KitSection(title: "Calendar events") {
             Toggle("Add a summary to the calendar event when a meeting ends", isOn: $prefs.calendarAppendSummary)
             Text("Only for meetings started during an event. A few lines of the summary and a **fnspeak://** link back to the meeting go at the end of the event's notes. If the calendar syncs, other attendees may see them.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -168,5 +252,64 @@ struct IntegrationsTab: View {
         panel.canCreateDirectories = true
         panel.directoryURL = URL(fileURLWithPath: prefs.meetingExportFolder, isDirectory: true)
         if panel.runModal() == .OK, let url = panel.url { prefs.meetingExportFolder = url.path }
+    }
+}
+
+/// One thing FnSpeak can be connected to: what it is, what it's for, and
+/// on the right either the way to connect it or the sign that it is.
+struct ConnectorCard<Trailing: View>: View {
+    let symbol: String
+    let name: String
+    /// The accounts connected, shown beside the name.
+    let tags: [String]
+    let detail: String
+    var note: String?
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        Card {
+            HStack(alignment: .center, spacing: Theme.Space.m) {
+                Image(systemName: symbol)
+                    .font(.system(size: 15))
+                    .foregroundStyle(Theme.text)
+                    .frame(width: 32, height: 32)
+                    .background(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous).fill(Theme.sunk))
+                VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                    HStack(spacing: Theme.Space.s) {
+                        Text(name).font(Theme.Fonts.heading).foregroundStyle(Theme.text)
+                        ForEach(tags, id: \.self) { tag in
+                            Text(tag)
+                                .font(Theme.Fonts.caption).foregroundStyle(Theme.textSoft)
+                                .lineLimit(1).truncationMode(.middle)
+                                .padding(.horizontal, 7).padding(.vertical, 2)
+                                .background(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous).fill(Theme.sunk))
+                        }
+                    }
+                    Text(detail).font(Theme.Fonts.support).foregroundStyle(Theme.textSoft)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let note {
+                        Label(note, systemImage: "info.circle")
+                            .font(Theme.Fonts.support).foregroundStyle(Theme.warning)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 2)
+                    }
+                }
+                Spacer(minLength: Theme.Space.m)
+                HStack(spacing: Theme.Space.s) { trailing }
+            }
+        }
+    }
+}
+
+/// The tick on a connector that's working.
+struct ConnectedMark: View {
+    var body: some View {
+        Image(systemName: "checkmark")
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(Theme.good)
+            .frame(width: 24, height: 24)
+            .background(Circle().fill(Theme.good.opacity(0.12)))
+            .overlay(Circle().strokeBorder(Theme.good.opacity(0.5), lineWidth: 1))
+            .accessibilityLabel("Connected")
     }
 }

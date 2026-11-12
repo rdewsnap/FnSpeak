@@ -32,7 +32,7 @@ enum MeetingCalendar {
             withStart: now.addingTimeInterval(-12 * 3600), end: now.addingTimeInterval(60), calendars: nil)
         let candidates = store.events(matching: predicate).filter {
             !$0.isAllDay && $0.startDate <= now.addingTimeInterval(60) && $0.endDate > now
-                && $0.availability != .free && $0.status != .canceled
+                && $0.availability != .free && $0.status != .canceled && CalendarAccounts.isUsed($0.calendar)
         }
         guard let event = candidates.max(by: { $0.startDate < $1.startDate }) else { return nil }
         return Event(

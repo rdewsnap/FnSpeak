@@ -367,6 +367,12 @@ extension Preferences {
     }
 
     /// Add a summary and a link to the meeting's calendar event when it ends.
+    /// Calendar accounts (EventKit source ids) switched off on the Connectors page.
+    var calendarIgnoredAccounts: [String] {
+        get { defaults.stringArray(forKey: "calendarIgnoredAccounts") ?? [] }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: "calendarIgnoredAccounts") }
+    }
+
     var calendarAppendSummary: Bool {
         get { defaults.object(forKey: "calendarAppendSummary") as? Bool ?? false }
         set { objectWillChange.send(); defaults.set(newValue, forKey: "calendarAppendSummary") }
