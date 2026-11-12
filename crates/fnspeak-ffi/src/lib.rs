@@ -330,6 +330,7 @@ pub struct FnSpeakEngine {
     notes: Arc<Mutex<NotesStore>>,
     meeting: Mutex<Option<MeetingSession>>,
     speaker_model: Option<PathBuf>,
+    data_dir: PathBuf,
     /// The dictation being recorded, if it's transcribed as it goes.
     dictation: Mutex<Option<DictationSession>>,
     listener: Arc<RwLock<Option<Arc<dyn MeetingListener>>>>,
@@ -373,6 +374,7 @@ impl FnSpeakEngine {
             notes: Arc::new(Mutex::new(notes)),
             meeting: Mutex::new(None),
             speaker_model: config.speaker_model.filter(|p| !p.is_empty()).map(PathBuf::from),
+            data_dir: dir,
             dictation: Mutex::new(None),
             listener: Arc::new(RwLock::new(None)),
         }))
@@ -965,7 +967,10 @@ impl FnSpeakEngine {
         let meeting = self.store().start_meeting(&title, calendar_event_id.as_deref(), &participants).map_err(storage_err)?;
         let transcriber = PipelineTranscriber { pipeline: self.pipeline.clone(), context: vocab_context(&meeting) };
         let listener: Arc<dyn SegmentListener> = Arc::new(ListenerSlot(self.listener.clone()));
-        let labeller = fnspeak_core::speakers::voice_labeller(self.speaker_model.as_deref());
+        // While the match threshold is being tuned, each meeting leaves its
+        // similarity scores (no audio, words or fingerprints) in Diagnostics.
+        let diagnostics = fnspeak_core::speakers::diagnostics_file(&self.data_dir.join("Diagnostics"), meeting.id);
+        let labeller = fnspeak_core::speakers::voice_labeller(self.speaker_model.as_deref(), Some(diagnostics));
         *current = Some(MeetingSession::start(meeting.id, self.notes.clone(), Box::new(transcriber), labeller, Some(listener), VadConfig::default()));
         Ok(Meeting::new(meeting, vec![]))
     }

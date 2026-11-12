@@ -8,7 +8,8 @@
 //! meeting: the fingerprints live in memory and go with the session.
 
 use crate::stt::SAMPLE_RATE;
-use std::path::Path;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 /// Cosine similarity at or above which an utterance joins a voice already
 /// heard. Lower merges different people into one speaker; higher splits one
@@ -59,7 +60,11 @@ pub struct Voice {
 /// Says who on the far side spoke an utterance.
 pub trait SpeakerLabeller: Send {
     /// A label to store instead of "others", or `None` to leave it.
-    fn label(&mut self, audio: &[f32]) -> Option<String>;
+    /// `started_ms` is where the utterance began in the meeting.
+    fn label(&mut self, audio: &[f32], started_ms: i64) -> Option<String>;
+
+    /// The meeting is over: nothing more will be labelled.
+    fn finish(&mut self) {}
 
     /// The voices heard so far, in the order they first spoke.
     fn voices(&self) -> Vec<Voice> {
@@ -80,6 +85,7 @@ pub struct VoiceLabeller {
     clusters: Vec<Cluster>,
     /// The far-side voice that spoke last.
     last: Option<usize>,
+    diagnostics: Option<Diagnostics>,
 }
 
 impl VoiceLabeller {
@@ -88,43 +94,65 @@ impl VoiceLabeller {
     }
 
     pub fn with_threshold(embedder: Box<dyn VoiceEmbedder>, threshold: f32) -> Self {
-        VoiceLabeller { embedder, threshold, clusters: Vec::new(), last: None }
+        VoiceLabeller { embedder, threshold, clusters: Vec::new(), last: None, diagnostics: None }
     }
 
-    fn assign(&mut self, embedding: &[f32]) -> usize {
-        let best = self
-            .clusters
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| c.sum.len() == embedding.len())
-            .map(|(i, c)| (i, cosine(&c.sum, embedding)))
-            .max_by(|a, b| a.1.total_cmp(&b.1));
+    /// Also write how each utterance scored to `file`, for tuning
+    /// [`SPEAKER_MATCH_THRESHOLD`]. See [`Diagnostics`].
+    pub fn with_diagnostics(mut self, file: impl Into<PathBuf>) -> Self {
+        self.diagnostics = Some(Diagnostics::start(file.into(), self.threshold));
+        self
+    }
+
+    /// How close a fingerprint is to each voice heard so far.
+    fn scores(&self, embedding: &[f32]) -> Vec<f32> {
+        self.clusters.iter().map(|c| if c.sum.len() == embedding.len() { cosine(&c.sum, embedding) } else { -1.0 }).collect()
+    }
+
+    fn assign(&mut self, embedding: &[f32], scores: &[f32]) -> (usize, &'static str) {
+        let best = scores.iter().copied().enumerate().max_by(|a, b| a.1.total_cmp(&b.1));
         match best {
             Some((i, score)) if score >= self.threshold => {
                 let cluster = &mut self.clusters[i];
                 cluster.sum.iter_mut().zip(embedding).for_each(|(s, e)| *s += e);
                 cluster.count += 1;
-                i
+                (i, "joined")
             }
             // Full: the nearest voice takes it, but isn't pulled towards it.
-            Some((i, _)) if self.clusters.len() >= MAX_SPEAKERS => i,
+            Some((i, _)) if self.clusters.len() >= MAX_SPEAKERS => (i, "full"),
             _ => {
                 self.clusters.push(Cluster { sum: embedding.to_vec(), count: 1 });
-                self.clusters.len() - 1
+                (self.clusters.len() - 1, "new")
             }
         }
     }
 }
 
 impl SpeakerLabeller for VoiceLabeller {
-    fn label(&mut self, audio: &[f32]) -> Option<String> {
+    fn label(&mut self, audio: &[f32], started_ms: i64) -> Option<String> {
         let long_enough = audio.len() as u64 * 1000 >= MIN_FINGERPRINT_MS as u64 * SAMPLE_RATE as u64;
         let embedding = if long_enough { self.embedder.embed(audio).and_then(normalized) } else { None };
-        if let Some(embedding) = embedding {
-            self.last = Some(self.assign(&embedding));
-        }
         // Too short or unreadable: whoever spoke last, if anyone has.
+        let mut decision = if long_enough { "unreadable" } else { "short" };
+        let mut scores = Vec::new();
+        if let Some(embedding) = &embedding {
+            scores = self.scores(embedding);
+            let (voice, how) = self.assign(embedding, &scores);
+            self.last = Some(voice);
+            decision = how;
+        }
+        if let Some(diagnostics) = self.diagnostics.as_mut() {
+            let duration_ms = audio.len() as u64 * 1000 / SAMPLE_RATE as u64;
+            diagnostics.turn(started_ms, duration_ms, decision, self.last, &scores, embedding);
+        }
         self.last.map(speaker_label)
+    }
+
+    fn finish(&mut self) {
+        let voices = self.voices();
+        if let Some(diagnostics) = self.diagnostics.as_mut() {
+            diagnostics.finish(&voices);
+        }
     }
 
     fn voices(&self) -> Vec<Voice> {
@@ -134,6 +162,107 @@ impl SpeakerLabeller for VoiceLabeller {
             .map(|(i, c)| Voice { label: speaker_label(i), embedding: normalized(c.sum.clone()).unwrap_or_default(), utterances: c.count })
             .collect()
     }
+}
+
+/// A plain-text record of how one meeting's far-side utterances scored, for
+/// choosing [`SPEAKER_MATCH_THRESHOLD`] from real calls. One line per
+/// utterance as it happens, then at the end how the voices and the
+/// utterances compare with each other.
+///
+/// It holds similarity scores, times and labels. Never audio, never words,
+/// and never the fingerprints themselves, so a voice can't be rebuilt or
+/// recognised from it. The words are in the transcript; `start_ms` lines the
+/// two up.
+///
+/// TEMPORARY: written for every meeting while the threshold is being tuned.
+/// Once it's settled, drop this or put it behind a setting.
+struct Diagnostics {
+    file: PathBuf,
+    turns: usize,
+    /// Fingerprints of this meeting's utterances by turn number, in memory
+    /// only, for the comparison written at the end.
+    fingerprints: Vec<(usize, Vec<f32>)>,
+}
+
+/// Files kept per folder; older meetings' are removed.
+const DIAGNOSTICS_KEPT: usize = 10;
+/// The utterance comparison grows with the square of this.
+const DIAGNOSTICS_MAX_COMPARED: usize = 300;
+
+impl Diagnostics {
+    fn start(file: PathBuf, threshold: f32) -> Self {
+        if let Some(dir) = file.parent() {
+            let _ = std::fs::create_dir_all(dir);
+            prune_diagnostics(dir, &file);
+        }
+        let header = format!(
+            "# FnSpeak speaker diagnostics. Scores, times and labels only: no audio, no words, no voice fingerprints.\n\
+             # threshold {threshold}  min_fingerprint_ms {MIN_FINGERPRINT_MS}  max_speakers {MAX_SPEAKERS}\n\
+             # decision: new = started a voice, joined = matched one, full = nearest voice at the cap,\n\
+             #           short / unreadable = not fingerprinted, went to whoever spoke last\n\
+             # scores = similarity to Speaker 1, Speaker 2, ... as they stood before this turn\n\
+             turn\tstart_ms\tduration_ms\tdecision\tlabel\tscores\n"
+        );
+        let _ = std::fs::write(&file, header);
+        Diagnostics { file, turns: 0, fingerprints: Vec::new() }
+    }
+
+    fn append(&self, text: &str) {
+        if let Ok(mut file) = std::fs::OpenOptions::new().append(true).open(&self.file) {
+            let _ = file.write_all(text.as_bytes());
+        }
+    }
+
+    fn turn(&mut self, started_ms: i64, duration_ms: u64, decision: &str, voice: Option<usize>, scores: &[f32], embedding: Option<Vec<f32>>) {
+        let label = voice.map(speaker_label).unwrap_or_else(|| "others".into());
+        self.append(&format!("{}\t{started_ms}\t{duration_ms}\t{decision}\t{label}\t{}\n", self.turns, row(scores)));
+        if let Some(embedding) = embedding.filter(|_| self.fingerprints.len() < DIAGNOSTICS_MAX_COMPARED) {
+            self.fingerprints.push((self.turns, embedding));
+        }
+        self.turns += 1;
+    }
+
+    fn finish(&mut self, voices: &[Voice]) {
+        let mut out = String::from("\n# voices: label, utterances fingerprinted into it, then its similarity to each voice\n");
+        for voice in voices {
+            let scores: Vec<f32> = voices.iter().map(|other| cosine(&voice.embedding, &other.embedding)).collect();
+            out.push_str(&format!("{}\t{}\t{}\n", voice.label, voice.utterances, row(&scores)));
+        }
+        out.push_str("\n# utterances: turn, then its similarity to each fingerprinted turn, in the order of the turn column\n");
+        for (turn, embedding) in &self.fingerprints {
+            let scores: Vec<f32> = self.fingerprints.iter().map(|(_, other)| cosine(embedding, other)).collect();
+            out.push_str(&format!("{turn}\t{}\n", row(&scores)));
+        }
+        self.append(&out);
+        self.fingerprints.clear();
+    }
+}
+
+fn row(scores: &[f32]) -> String {
+    scores.iter().map(|s| format!("{s:.2}")).collect::<Vec<_>>().join(" ")
+}
+
+/// Keep the newest few diagnostics files in `dir`, and always `keep`.
+fn prune_diagnostics(dir: &Path, keep: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut files: Vec<(std::time::SystemTime, PathBuf)> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p != keep && p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(DIAGNOSTICS_PREFIX)))
+        .filter_map(|p| Some((std::fs::metadata(&p).ok()?.modified().ok()?, p)))
+        .collect();
+    files.sort();
+    let extra = files.len().saturating_sub(DIAGNOSTICS_KEPT - 1);
+    for (_, old) in files.into_iter().take(extra) {
+        let _ = std::fs::remove_file(old);
+    }
+}
+
+const DIAGNOSTICS_PREFIX: &str = "speakers-meeting-";
+
+/// Where a meeting's speaker diagnostics go, inside `dir`.
+pub fn diagnostics_file(dir: &Path, meeting_id: i64) -> PathBuf {
+    dir.join(format!("{DIAGNOSTICS_PREFIX}{meeting_id}.txt"))
 }
 
 fn normalized(mut v: Vec<f32>) -> Option<Vec<f32>> {
@@ -200,8 +329,9 @@ const MIN_MODEL_BYTES: u64 = 1_000_000;
 
 /// The labeller for a meeting, given where the speaker-embedding model
 /// should be. `None` when this build has no model runtime or the file isn't
-/// there, and then the far side stays "others".
-pub fn voice_labeller(model: Option<&Path>) -> Option<Box<dyn SpeakerLabeller>> {
+/// there, and then the far side stays "others". With `diagnostics`, the
+/// meeting's scores are written to that file (see [`diagnostics_file`]).
+pub fn voice_labeller(model: Option<&Path>, diagnostics: Option<PathBuf>) -> Option<Box<dyn SpeakerLabeller>> {
     #[cfg(feature = "parakeet")]
     {
         let model = model?;
@@ -209,11 +339,15 @@ pub fn voice_labeller(model: Option<&Path>) -> Option<Box<dyn SpeakerLabeller>> 
         if size < MIN_MODEL_BYTES {
             return None;
         }
-        Some(Box::new(VoiceLabeller::new(Box::new(SherpaEmbedder::new(model)))))
+        let labeller = VoiceLabeller::new(Box::new(SherpaEmbedder::new(model)));
+        Some(Box::new(match diagnostics {
+            Some(file) => labeller.with_diagnostics(file),
+            None => labeller,
+        }))
     }
     #[cfg(not(feature = "parakeet"))]
     {
-        let _ = model;
+        let _ = (model, diagnostics);
         None
     }
 }
@@ -250,7 +384,7 @@ mod tests {
     fn groups_similar_voices_and_numbers_them_in_order() {
         let mut l = labeller();
         let said = [ANA, BEN, ANA_AGAIN, CAT, BEN, ANA];
-        let labels: Vec<String> = said.iter().map(|v| l.label(&utterance(*v, 3000)).unwrap()).collect();
+        let labels: Vec<String> = said.iter().map(|v| l.label(&utterance(*v, 3000), 0).unwrap()).collect();
         assert_eq!(labels, ["Speaker 1", "Speaker 2", "Speaker 1", "Speaker 3", "Speaker 2", "Speaker 1"]);
 
         let voices = l.voices();
@@ -268,24 +402,24 @@ mod tests {
     fn short_utterances_go_to_whoever_spoke_last() {
         let mut l = labeller();
         // Nobody has spoken yet: nothing to inherit, and no speaker is made up.
-        assert_eq!(l.label(&utterance(BEN, 600)), None);
-        assert_eq!(l.label(&utterance(ANA, 3000)).as_deref(), Some("Speaker 1"));
+        assert_eq!(l.label(&utterance(BEN, 600), 0), None);
+        assert_eq!(l.label(&utterance(ANA, 3000), 0).as_deref(), Some("Speaker 1"));
         // Ben's "yeah" is too short to tell from Ana, so it stays with her.
-        assert_eq!(l.label(&utterance(BEN, 600)).as_deref(), Some("Speaker 1"));
+        assert_eq!(l.label(&utterance(BEN, 600), 0).as_deref(), Some("Speaker 1"));
         assert_eq!(l.voices().len(), 1);
         assert_eq!(l.voices()[0].utterances, 1);
-        assert_eq!(l.label(&utterance(BEN, MIN_FINGERPRINT_MS)).as_deref(), Some("Speaker 2"));
-        assert_eq!(l.label(&utterance(ANA, MIN_FINGERPRINT_MS - 1)).as_deref(), Some("Speaker 2"));
+        assert_eq!(l.label(&utterance(BEN, MIN_FINGERPRINT_MS), 0).as_deref(), Some("Speaker 2"));
+        assert_eq!(l.label(&utterance(ANA, MIN_FINGERPRINT_MS - 1), 0).as_deref(), Some("Speaker 2"));
     }
 
     #[test]
     fn unreadable_audio_inherits_too() {
         let mut l = labeller();
-        assert_eq!(l.label(&utterance(UNREADABLE, 3000)), None);
-        assert_eq!(l.label(&utterance(ANA, 3000)).as_deref(), Some("Speaker 1"));
-        assert_eq!(l.label(&utterance(UNREADABLE, 3000)).as_deref(), Some("Speaker 1"));
+        assert_eq!(l.label(&utterance(UNREADABLE, 3000), 0), None);
+        assert_eq!(l.label(&utterance(ANA, 3000), 0).as_deref(), Some("Speaker 1"));
+        assert_eq!(l.label(&utterance(UNREADABLE, 3000), 0).as_deref(), Some("Speaker 1"));
         // A silent fingerprint (all zeros) can't be compared either.
-        assert_eq!(l.label(&utterance([0.0; 3], 3000)).as_deref(), Some("Speaker 1"));
+        assert_eq!(l.label(&utterance([0.0; 3], 3000), 0).as_deref(), Some("Speaker 1"));
         assert_eq!(l.voices().len(), 1);
     }
 
@@ -293,11 +427,11 @@ mod tests {
     fn threshold_decides_between_joining_and_splitting() {
         let near_ana = [1.0, 0.8, 0.0]; // cosine with ANA is about 0.84
         let mut strict = VoiceLabeller::with_threshold(Box::new(FirstSamples), 0.9);
-        strict.label(&utterance(ANA, 3000));
-        assert_eq!(strict.label(&utterance(near_ana, 3000)).as_deref(), Some("Speaker 2"));
+        strict.label(&utterance(ANA, 3000), 0);
+        assert_eq!(strict.label(&utterance(near_ana, 3000), 0).as_deref(), Some("Speaker 2"));
         let mut loose = VoiceLabeller::with_threshold(Box::new(FirstSamples), 0.8);
-        loose.label(&utterance(ANA, 3000));
-        assert_eq!(loose.label(&utterance(near_ana, 3000)).as_deref(), Some("Speaker 1"));
+        loose.label(&utterance(ANA, 3000), 0);
+        assert_eq!(loose.label(&utterance(near_ana, 3000), 0).as_deref(), Some("Speaker 1"));
     }
 
     #[test]
@@ -312,21 +446,57 @@ mod tests {
         }
         let mut l = VoiceLabeller::new(Box::new(OneHot));
         for i in 0..MAX_SPEAKERS + 5 {
-            l.label(&utterance([i as f32, 0.0, 0.0], 3000));
+            l.label(&utterance([i as f32, 0.0, 0.0], 3000), 0);
         }
         assert_eq!(l.voices().len(), MAX_SPEAKERS);
     }
 
     #[test]
+    fn diagnostics_record_scores_and_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("Diagnostics");
+        std::fs::create_dir_all(&folder).unwrap();
+        // Left over from earlier meetings: only the newest few survive.
+        for id in 0..15 {
+            std::fs::write(diagnostics_file(&folder, id), "old").unwrap();
+        }
+        std::fs::write(folder.join("unrelated.txt"), "keep me").unwrap();
+
+        let file = diagnostics_file(&folder, 42);
+        let mut l = labeller().with_diagnostics(&file);
+        l.label(&utterance(BEN, 600), 100);
+        l.label(&utterance(ANA, 3000), 1_800);
+        l.label(&utterance(BEN, 2000), 6_000);
+        l.label(&utterance(ANA_AGAIN, 2500), 9_500);
+        // Written as it goes, so a crash mid-meeting still leaves the turns.
+        let so_far = std::fs::read_to_string(&file).unwrap();
+        assert!(so_far.contains("0\t100\t600\tshort\tothers\t\n"));
+        assert!(so_far.contains("1\t1800\t3000\tnew\tSpeaker 1\t\n"));
+        assert!(so_far.contains("2\t6000\t2000\tnew\tSpeaker 2\t0.10\n"));
+        assert!(so_far.contains("3\t9500\t2500\tjoined\tSpeaker 1\t0.97 0.02\n"), "{so_far}");
+        assert!(!so_far.contains("# voices"));
+
+        l.finish();
+        let done = std::fs::read_to_string(&file).unwrap();
+        assert!(done.contains("Speaker 1\t2\t1.00 0.06\nSpeaker 2\t1\t0.06 1.00\n"), "{done}");
+        // Turn 0 was never fingerprinted, so it isn't compared.
+        assert!(done.contains("1\t1.00 0.10 0.97\n2\t0.10 1.00 0.02\n3\t0.97 0.02 1.00\n"), "{done}");
+
+        let left = std::fs::read_dir(&folder).unwrap().count();
+        assert_eq!(left, DIAGNOSTICS_KEPT + 1, "ten diagnostics files and the unrelated one");
+        assert!(folder.join("unrelated.txt").exists());
+    }
+
+    #[test]
     fn no_labeller_without_a_model() {
-        assert!(voice_labeller(None).is_none());
-        assert!(voice_labeller(Some(Path::new("/nonexistent/speaker.onnx"))).is_none());
+        assert!(voice_labeller(None, None).is_none());
+        assert!(voice_labeller(Some(Path::new("/nonexistent/speaker.onnx")), None).is_none());
         // A stub of a file (an interrupted download) doesn't count as a model.
         let dir = tempfile::tempdir().unwrap();
         let stub = dir.path().join("speaker.onnx");
         std::fs::write(&stub, b"not a model").unwrap();
-        assert!(voice_labeller(Some(&stub)).is_none());
-        assert!(voice_labeller(Some(dir.path())).is_none());
+        assert!(voice_labeller(Some(&stub), None).is_none());
+        assert!(voice_labeller(Some(dir.path()), None).is_none());
     }
 
     /// Not run by default: needs the model and some clips. Prints how real
@@ -398,15 +568,16 @@ mod tests {
         let longest = by_speaker.values().map(Vec::len).max().unwrap();
         let order: Vec<usize> = (0..longest).flat_map(|n| by_speaker.values().filter_map(move |v| v.get(n).copied())).collect();
 
-        let mut labeller = voice_labeller(Some(Path::new(&model))).expect("the model file should be accepted");
+        let mut labeller = voice_labeller(Some(Path::new(&model)), std::env::var("FNSPEAK_SPEAKER_DIAGNOSTICS").ok().map(PathBuf::from)).expect("the model file should be accepted");
         let mut seen: std::collections::BTreeMap<&str, std::collections::BTreeMap<String, usize>> = Default::default();
         for i in order {
-            let label = labeller.label(&turns[i].2).unwrap_or_else(|| "others".into());
+            let label = labeller.label(&turns[i].2, 0).unwrap_or_else(|| "others".into());
             *seen.entry(&turns[i].0).or_default().entry(label).or_default() += 1;
         }
         for (who, labels) in &seen {
             println!("{who:>12}: {labels:?}");
         }
+        labeller.finish();
         println!("{} voices found for {} speakers", labeller.voices().len(), by_speaker.len());
         if piece_ms.is_none() {
             assert_eq!(labeller.voices().len(), by_speaker.len());

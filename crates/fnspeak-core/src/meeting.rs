@@ -346,7 +346,8 @@ impl Worker {
                 self.handle(source, utterance);
             }
         }
-        if let Some(labeller) = &self.labeller {
+        if let Some(labeller) = self.labeller.as_mut() {
+            labeller.finish();
             self.report.voices = labeller.voices();
         }
         self.report
@@ -363,7 +364,7 @@ impl Worker {
         // Only speech that made it to text gets a voice: noise that
         // transcribed to nothing shouldn't count as someone speaking.
         let voice = match (source, self.labeller.as_mut()) {
-            (AudioSource::System, Some(labeller)) => labeller.label(&utterance.audio),
+            (AudioSource::System, Some(labeller)) => labeller.label(&utterance.audio, utterance.started_ms()),
             _ => None,
         };
         let speaker = voice.as_deref().unwrap_or(source.speaker());
@@ -503,7 +504,7 @@ mod tests {
     /// then gives up, the way a labeller with nothing to go on does.
     struct Scripted(usize);
     impl SpeakerLabeller for Scripted {
-        fn label(&mut self, _audio: &[f32]) -> Option<String> {
+        fn label(&mut self, _audio: &[f32], _started_ms: i64) -> Option<String> {
             self.0 += 1;
             (self.0 <= 2).then(|| format!("Speaker {}", self.0))
         }
@@ -547,7 +548,7 @@ mod tests {
         }
         struct Panics;
         impl SpeakerLabeller for Panics {
-            fn label(&mut self, _audio: &[f32]) -> Option<String> {
+            fn label(&mut self, _audio: &[f32], _started_ms: i64) -> Option<String> {
                 panic!("asked to label an utterance with no text");
             }
         }
