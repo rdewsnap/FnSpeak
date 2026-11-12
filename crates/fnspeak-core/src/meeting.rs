@@ -1,8 +1,9 @@
 //! Live meeting transcription.
 //!
 //! The app feeds two streams: the microphone (the user) and the audio the
-//! computer plays (everyone else on the call). Keeping them apart is the
-//! whole of speaker attribution: mic speech is "me", system audio "others".
+//! computer plays (everyone else on the call). Mic speech is "me". System
+//! audio is "others", or "Speaker 1", "Speaker 2" and so on when a
+//! [`SpeakerLabeller`] is there to tell the far-side voices apart.
 //! Each stream is cut into utterances at pauses, and each utterance goes
 //! through speech-to-text and the rule-based filter (never the cleanup
 //! model) and lands in the notes store as a segment.
@@ -12,6 +13,7 @@
 
 use crate::notes::{NotesStore, Segment, SPEAKER_ME, SPEAKER_OTHERS};
 use crate::pipeline::Pipeline;
+use crate::speakers::{SpeakerLabeller, Voice};
 use crate::stt::SAMPLE_RATE;
 use std::collections::VecDeque;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -257,6 +259,9 @@ pub struct SessionReport {
     /// Utterances that couldn't be transcribed or stored.
     pub failures: usize,
     pub last_error: Option<String>,
+    /// The far-side voices that were told apart, in the order they first
+    /// spoke. Empty without a speaker labeller. In memory only.
+    pub voices: Vec<Voice>,
 }
 
 /// One meeting being recorded. Feed it audio from any thread; call
@@ -275,13 +280,14 @@ impl MeetingSession {
         meeting_id: i64,
         store: Arc<Mutex<NotesStore>>,
         transcriber: Box<dyn Transcriber>,
+        labeller: Option<Box<dyn SpeakerLabeller>>,
         listener: Option<Arc<dyn SegmentListener>>,
         config: VadConfig,
     ) -> Self {
         let (tx, rx) = mpsc::channel();
         let worker = thread::Builder::new()
             .name(format!("meeting-{meeting_id}"))
-            .spawn(move || Worker { meeting_id, store, transcriber, listener, report: SessionReport::default() }.run(rx, config))
+            .spawn(move || Worker { meeting_id, store, transcriber, labeller, listener, report: SessionReport::default() }.run(rx, config))
             .expect("spawn meeting worker");
         MeetingSession { meeting_id, tx, worker: Some(worker) }
     }
@@ -316,6 +322,8 @@ struct Worker {
     meeting_id: i64,
     store: Arc<Mutex<NotesStore>>,
     transcriber: Box<dyn Transcriber>,
+    /// Tells far-side voices apart; without one they're all "others".
+    labeller: Option<Box<dyn SpeakerLabeller>>,
     listener: Option<Arc<dyn SegmentListener>>,
     report: SessionReport,
 }
@@ -338,6 +346,9 @@ impl Worker {
                 self.handle(source, utterance);
             }
         }
+        if let Some(labeller) = &self.labeller {
+            self.report.voices = labeller.voices();
+        }
         self.report
     }
 
@@ -349,9 +360,16 @@ impl Worker {
         if text.trim().is_empty() {
             return;
         }
+        // Only speech that made it to text gets a voice: noise that
+        // transcribed to nothing shouldn't count as someone speaking.
+        let voice = match (source, self.labeller.as_mut()) {
+            (AudioSource::System, Some(labeller)) => labeller.label(&utterance.audio),
+            _ => None,
+        };
+        let speaker = voice.as_deref().unwrap_or(source.speaker());
         let stored = {
             let store = self.store.lock().unwrap_or_else(|e| e.into_inner());
-            store.append_segment(self.meeting_id, utterance.started_ms(), utterance.ended_ms(), source.speaker(), &raw, &text)
+            store.append_segment(self.meeting_id, utterance.started_ms(), utterance.ended_ms(), speaker, &raw, &text)
         };
         match stored {
             Ok(segment) => {
@@ -460,7 +478,7 @@ mod tests {
         let meeting = store.lock().unwrap().start_meeting("Standup", None, &[]).unwrap();
         let listener = Arc::new(Collect::default());
         let session =
-            MeetingSession::start(meeting.id, store.clone(), Box::new(Counter(0)), Some(listener.clone()), VadConfig::default());
+            MeetingSession::start(meeting.id, store.clone(), Box::new(Counter(0)), None, Some(listener.clone()), VadConfig::default());
 
         let mic = concat(&[tone(1000), silence(3000)]);
         let system = concat(&[silence(2000), tone(1000), silence(1000)]);
@@ -471,7 +489,7 @@ mod tests {
         }
         session.feed(AudioSource::Mic, tone(500));
         let report = session.finish();
-        assert_eq!(report, SessionReport { segments: 3, failures: 0, last_error: None });
+        assert_eq!(report, SessionReport { segments: 3, failures: 0, last_error: None, voices: vec![] });
 
         let segments = store.lock().unwrap().segments(meeting.id).unwrap();
         let speakers: Vec<&str> = segments.iter().map(|s| s.speaker.as_str()).collect();
@@ -479,5 +497,64 @@ mod tests {
         assert_eq!(segments[1].started_ms, 1800);
         assert_eq!(segments[0].raw, "um utterance 1");
         assert_eq!(listener.0.lock().unwrap().len(), 3);
+    }
+
+    /// Calls the first far-side utterance Speaker 1 and the next Speaker 2,
+    /// then gives up, the way a labeller with nothing to go on does.
+    struct Scripted(usize);
+    impl SpeakerLabeller for Scripted {
+        fn label(&mut self, _audio: &[f32]) -> Option<String> {
+            self.0 += 1;
+            (self.0 <= 2).then(|| format!("Speaker {}", self.0))
+        }
+
+        fn voices(&self) -> Vec<Voice> {
+            vec![Voice { label: "Speaker 1".into(), embedding: vec![1.0], utterances: 1 }]
+        }
+    }
+
+    #[test]
+    fn session_labels_far_side_speakers() {
+        let store = Arc::new(Mutex::new(NotesStore::in_memory().unwrap()));
+        let meeting = store.lock().unwrap().start_meeting("Standup", None, &[]).unwrap();
+        let session =
+            MeetingSession::start(meeting.id, store.clone(), Box::new(Counter(0)), Some(Box::new(Scripted(0))), None, VadConfig::default());
+
+        let turn = concat(&[tone(1000), silence(1000)]);
+        session.feed(AudioSource::System, turn.clone());
+        // The mic never goes to the labeller, so it doesn't use up a turn.
+        session.feed(AudioSource::Mic, turn.clone());
+        session.feed(AudioSource::System, turn.clone());
+        session.feed(AudioSource::System, turn);
+        let report = session.finish();
+        assert_eq!(report.segments, 4);
+        assert_eq!(report.voices.len(), 1);
+
+        let mut segments = store.lock().unwrap().segments(meeting.id).unwrap();
+        segments.sort_by_key(|s| s.id);
+        let speakers: Vec<&str> = segments.iter().map(|s| s.speaker.as_str()).collect();
+        // No label for the last one: it falls back to plain "others".
+        assert_eq!(speakers, vec!["Speaker 1", "me", "Speaker 2", "others"]);
+    }
+
+    #[test]
+    fn silent_utterances_are_not_given_a_voice() {
+        struct Nothing;
+        impl Transcriber for Nothing {
+            fn transcribe(&mut self, _audio: &[f32]) -> Result<(String, String), String> {
+                Ok((String::new(), "  ".into()))
+            }
+        }
+        struct Panics;
+        impl SpeakerLabeller for Panics {
+            fn label(&mut self, _audio: &[f32]) -> Option<String> {
+                panic!("asked to label an utterance with no text");
+            }
+        }
+        let store = Arc::new(Mutex::new(NotesStore::in_memory().unwrap()));
+        let meeting = store.lock().unwrap().start_meeting("Standup", None, &[]).unwrap();
+        let session = MeetingSession::start(meeting.id, store, Box::new(Nothing), Some(Box::new(Panics)), None, VadConfig::default());
+        session.feed(AudioSource::System, concat(&[tone(1000), silence(1000)]));
+        assert_eq!(session.finish(), SessionReport::default());
     }
 }

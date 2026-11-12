@@ -56,6 +56,7 @@ struct MeetingsTab: View {
                     }
                     Text("Without it, meetings still record your microphone.")
                         .font(.callout).foregroundStyle(.secondary)
+                    ModelDownloadRow(item: .speakers, note: "Labels each voice on the other side as Speaker 1, Speaker 2 and so on, starting with your next meeting. Runs on this Mac.")
                 }
                 Text("Your microphone is recorded with echo cancellation so the call doesn't show up under “Me”. Dictation keeps working during a meeting.")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

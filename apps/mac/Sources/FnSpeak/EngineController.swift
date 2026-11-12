@@ -339,7 +339,10 @@ final class EngineController: ObservableObject {
             speech: speech,
             mode: Self.mode(prefs.mode),
             local: localModel(),
-            cloud: cloudConfig()
+            cloud: cloudConfig(),
+            // Looked for when each meeting starts, so a model downloaded
+            // later is picked up without reloading the engine.
+            speakerModel: (ModelLocator.speakerModel ?? ModelLocator.defaultSpeakerModel).path
         )
     }
 

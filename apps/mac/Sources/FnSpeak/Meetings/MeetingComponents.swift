@@ -102,7 +102,24 @@ struct MeetingLevelBar: View {
 struct MeetingSegmentRow: View {
     let segment: Segment
 
-    private var isMe: Bool { segment.speaker.lowercased() == "me" }
+    /// Far-side voices in the order they first spoke. The first keeps the
+    /// orange "Others" has always had.
+    private static let voiceColors: [Color] = [.orange, .teal, .purple, .pink, .green, .indigo, .brown, .cyan]
+
+    /// One colour per speaker, the same wherever the meeting is shown:
+    /// "Speaker 3" is always the third colour, and a name always hashes to
+    /// the same one.
+    static func color(for speaker: String) -> Color {
+        let key = speaker.lowercased()
+        if key == "me" { return Theme.accent }
+        if key == "others" { return voiceColors[0] }
+        if key.hasPrefix("speaker "), let number = Int(key.dropFirst("speaker ".count)), number > 0 {
+            return voiceColors[(number - 1) % voiceColors.count]
+        }
+        // Not hashValue: that changes from launch to launch.
+        let sum = key.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) % 1_000_003 }
+        return voiceColors[sum % voiceColors.count]
+    }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -112,8 +129,9 @@ struct MeetingSegmentRow: View {
                 .frame(width: 52, alignment: .trailing)
             Text(MeetingController.speakerName(segment.speaker))
                 .font(.callout.weight(.semibold))
-                .foregroundStyle(isMe ? Theme.accent : Color.orange)
-                .frame(width: 56, alignment: .leading)
+                .foregroundStyle(Self.color(for: segment.speaker))
+                .lineLimit(1)
+                .frame(width: 74, alignment: .leading)
             Text(segment.text.isEmpty ? segment.raw : segment.text)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)

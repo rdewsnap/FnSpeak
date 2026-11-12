@@ -29,6 +29,24 @@ enum ModelLocator {
         }
     }
 
+    /// The speaker-embedding model the app downloads: 3D-Speaker CAM++,
+    /// trained on English and Chinese, from sherpa-onnx's speaker models.
+    static let speakerModelName = "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"
+
+    /// Where the downloaded speaker model lands.
+    static var defaultSpeakerModel: URL { modelsDirectory.appendingPathComponent(speakerModelName) }
+
+    /// The model that tells far-side voices apart in meetings: the default
+    /// one, else any other sherpa-onnx speaker model dropped in the folder.
+    static var speakerModel: URL? {
+        if FileManager.default.fileExists(atPath: defaultSpeakerModel.path) { return defaultSpeakerModel }
+        return contents(of: modelsDirectory).first { file in
+            let name = file.lastPathComponent.lowercased()
+            return file.pathExtension == "onnx"
+                && ["3dspeaker", "wespeaker", "speakerverification", "titanet"].contains { name.contains($0) }
+        }
+    }
+
     /// UserDefaults key for the file name of the cleanup model, chosen in
     /// Settings → Cleanup. Empty means pick one automatically.
     static let cleanupModelKey = "cleanupModel"

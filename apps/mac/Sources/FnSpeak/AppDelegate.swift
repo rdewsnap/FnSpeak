@@ -262,6 +262,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if prefs.mode == "local" {
                 if engine.isReady { engine.reconfigureCleanup() } else if engine.status != .loading { engine.load() }
             }
+        case .speakers:
+            break // The next meeting finds it on its own.
         }
     }
 

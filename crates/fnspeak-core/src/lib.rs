@@ -9,6 +9,7 @@ pub mod history;
 pub mod notes;
 pub mod pipeline;
 pub mod snippets;
+pub mod speakers;
 pub mod stt;
 pub mod summary;
 pub mod tier;

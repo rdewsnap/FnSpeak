@@ -121,6 +121,7 @@ struct OnboardingView: View {
         case .whisper: return "Turns your voice into text."
         case .cleanup: return "Tidies what you said."
         case .parakeet: return "A faster speech model."
+        case .speakers: return "Tells the people on a call apart."
         }
     }
 

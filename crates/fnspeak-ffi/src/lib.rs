@@ -140,6 +140,11 @@ pub struct EngineConfig {
     pub mode: Mode,
     pub local: Option<LocalModel>,
     pub cloud: Option<CloudConfig>,
+    /// Where the speaker-embedding model (a sherpa-onnx `.onnx`) is, or
+    /// will be once it's downloaded. Checked each time a meeting starts:
+    /// with the file there, far-side voices are told apart; without it they
+    /// are all "others".
+    pub speaker_model: Option<String>,
 }
 
 /// How the cleanup model should write.
@@ -324,6 +329,7 @@ pub struct FnSpeakEngine {
     pipeline: Arc<Mutex<Pipeline>>,
     notes: Arc<Mutex<NotesStore>>,
     meeting: Mutex<Option<MeetingSession>>,
+    speaker_model: Option<PathBuf>,
     /// The dictation being recorded, if it's transcribed as it goes.
     dictation: Mutex<Option<DictationSession>>,
     listener: Arc<RwLock<Option<Arc<dyn MeetingListener>>>>,
@@ -366,6 +372,7 @@ impl FnSpeakEngine {
             pipeline: Arc::new(Mutex::new(pipeline)),
             notes: Arc::new(Mutex::new(notes)),
             meeting: Mutex::new(None),
+            speaker_model: config.speaker_model.filter(|p| !p.is_empty()).map(PathBuf::from),
             dictation: Mutex::new(None),
             listener: Arc::new(RwLock::new(None)),
         }))
@@ -562,7 +569,9 @@ impl FnSpeakEngine {
  *            slightly out of order across the two sources; sort by
  *            started_ms.
  *
- * Speakers: the mic stream is "me", the system-audio stream is "others".
+ * Speakers: the mic stream is "me". The system-audio stream is "others",
+ * or "Speaker 1", "Speaker 2"… (numbered in the order they first speak)
+ * when EngineConfig.speaker_model points at a model on disk.
  * Feed both streams continuously from the start, silence included, at
  * 16 kHz mono f32: timestamps are counted in samples per stream.
  *
@@ -780,7 +789,7 @@ pub struct Segment {
     /// Offsets from the start of the meeting.
     pub started_ms: i64,
     pub ended_ms: i64,
-    /// "me", "others", or a name.
+    /// "me", "others", "Speaker 1" and up, or a name.
     pub speaker: String,
     /// Exactly what the speech engine heard.
     pub raw: String,
@@ -882,7 +891,8 @@ impl From<notes::SearchHit> for SearchHit {
 pub enum AudioSource {
     /// The user's microphone: transcribed as "me".
     Mic,
-    /// What the computer plays (the call): transcribed as "others".
+    /// What the computer plays (the call): transcribed as "others", or as
+    /// numbered speakers when the speaker model is there.
     System,
 }
 
@@ -955,7 +965,8 @@ impl FnSpeakEngine {
         let meeting = self.store().start_meeting(&title, calendar_event_id.as_deref(), &participants).map_err(storage_err)?;
         let transcriber = PipelineTranscriber { pipeline: self.pipeline.clone(), context: vocab_context(&meeting) };
         let listener: Arc<dyn SegmentListener> = Arc::new(ListenerSlot(self.listener.clone()));
-        *current = Some(MeetingSession::start(meeting.id, self.notes.clone(), Box::new(transcriber), Some(listener), VadConfig::default()));
+        let labeller = fnspeak_core::speakers::voice_labeller(self.speaker_model.as_deref());
+        *current = Some(MeetingSession::start(meeting.id, self.notes.clone(), Box::new(transcriber), labeller, Some(listener), VadConfig::default()));
         Ok(Meeting::new(meeting, vec![]))
     }
 

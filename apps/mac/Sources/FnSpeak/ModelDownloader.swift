@@ -7,7 +7,7 @@ final class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDeleg
     static let shared = ModelDownloader()
 
     enum Item: String, CaseIterable, Identifiable {
-        case whisper, cleanup, parakeet
+        case whisper, cleanup, parakeet, speakers
 
         var id: String { rawValue }
 
@@ -16,6 +16,7 @@ final class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDeleg
             case .whisper: return "Speech model (Whisper large-v3-turbo)"
             case .cleanup: return "Cleanup model (Qwen3 4B)"
             case .parakeet: return "Faster speech model (Parakeet)"
+            case .speakers: return "Speaker model (CAM++)"
             }
         }
 
@@ -25,13 +26,14 @@ final class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDeleg
             case .whisper: return "550 MB"
             case .cleanup: return "2.5 GB"
             case .parakeet: return "650 MB"
+            case .speakers: return "28 MB"
             }
         }
 
         var source: String {
             switch self {
             case .whisper, .cleanup: return "huggingface.co"
-            case .parakeet: return "github.com"
+            case .parakeet, .speakers: return "github.com"
             }
         }
 
@@ -43,6 +45,9 @@ final class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDeleg
                 return URL(string: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf")!
             case .parakeet:
                 return URL(string: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2")!
+            case .speakers:
+                // "recongition" is how the release tag is spelled upstream.
+                return URL(string: "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/\(ModelLocator.speakerModelName)")!
             }
         }
 
@@ -52,6 +57,7 @@ final class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDeleg
             case .whisper: return "ggml-large-v3-turbo-q5_0.bin"
             case .cleanup: return "Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
             case .parakeet: return "parakeet.tar.bz2"
+            case .speakers: return ModelLocator.speakerModelName
             }
         }
 
@@ -61,6 +67,7 @@ final class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDeleg
             case .whisper: return ModelLocator.whisperModel != nil
             case .cleanup: return ModelLocator.cleanupModel != nil
             case .parakeet: return ModelLocator.parakeetModel != nil
+            case .speakers: return ModelLocator.speakerModel != nil
             }
         }
     }
