@@ -22,6 +22,8 @@ final class AccountController: ObservableObject {
     @Published private(set) var plan: ServerClient.Plan?
     @Published private(set) var teamDetails: [String: ServerClient.TeamDetail] = [:]
     @Published private(set) var pendingInvites: [String: [ServerClient.Invite]] = [:]
+    /// Each team's shared glossary, for the team's panel.
+    @Published private(set) var teamGlossaries: [String: [ServerClient.GlossaryTerm]] = [:]
     /// The server can sign people in with Google.
     @Published private(set) var offersGoogle = false
     @Published private(set) var busy = false
@@ -47,7 +49,32 @@ final class AccountController: ObservableObject {
                 progress: 0.128,
                 actions: [.init(id: "change", title: "Change plan")]
             )
+            if Self.previewsTeam { previewTeam() }
         }
+    }
+
+    /// Dev hook: a made-up team the signed-in person owns, with members, a
+    /// pending invite and a few shared terms.
+    static let previewsTeam = ProcessInfo.processInfo.environment["FNSPEAK_PREVIEW_PLAN"] == "team"
+    static let previewTeamId = "preview-team"
+
+    private func previewTeam() {
+        let id = Self.previewTeamId
+        me = ServerClient.Me(
+            user: .init(id: "u1", email: "sam@example.com"),
+            teams: [ServerClient.Team(id: id, name: "Acme Studio", personal: false, role: "owner")]
+        )
+        teamDetails[id] = ServerClient.TeamDetail(id: id, name: "Acme Studio", personal: false, role: "owner", members: [
+            .init(userId: "u1", email: "sam@example.com", role: "owner"),
+            .init(userId: "u2", email: "priya@example.com", role: "admin"),
+            .init(userId: "u3", email: "lee@example.com", role: "member"),
+        ])
+        pendingInvites[id] = [ServerClient.Invite(id: "i1", email: "jo@example.com", role: "member", expiresAt: 0)]
+        teamGlossaries[id] = [
+            .init(id: "g1", teamId: id, term: "Kubernetes", addedBy: "sam@example.com"),
+            .init(id: "g2", teamId: id, term: "Priya Raghunathan", addedBy: "priya@example.com"),
+            .init(id: "g3", teamId: id, term: "pgvector", addedBy: "lee@example.com"),
+        ]
     }
 
     /// Dev hook: draw the account page signed in, on a made-up plan.
@@ -187,6 +214,7 @@ final class AccountController: ObservableObject {
         plan = nil
         teamDetails = [:]
         pendingInvites = [:]
+        teamGlossaries = [:]
         phase = .signedOut
         notice = nil
         error = nil
@@ -223,7 +251,8 @@ final class AccountController: ObservableObject {
         run(quiet: true) { client in
             self.me = try await client.me()
             self.plan = try? await client.plan()
-            for team in self.sharedTeams where team.canManage { try await self.loadTeam(team.id, client: client) }
+            // Every member can see who is on a team and what it shares.
+            for team in self.sharedTeams { try await self.loadTeam(team.id, client: client) }
         }
     }
 
@@ -246,6 +275,7 @@ final class AccountController: ObservableObject {
         if detail.role == "owner" || detail.role == "admin" {
             pendingInvites[id] = try await client.invites(team: id)
         }
+        teamGlossaries[id] = try await client.glossary(team: id)
     }
 
     /// Called when the server says the token is no longer good.

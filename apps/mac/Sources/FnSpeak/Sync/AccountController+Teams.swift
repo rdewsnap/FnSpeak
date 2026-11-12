@@ -37,9 +37,76 @@ extension AccountController {
         }
     }
 
+    func renameTeam(_ team: ServerClient.Team, to name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != team.name else { return }
+        run { client in
+            try await client.renameTeam(id: team.id, name: name)
+            self.me = try await client.me()
+            try await self.loadTeam(team.id, client: client)
+            self.notice = "Renamed to \(name)."
+        }
+    }
+
+    func setRole(_ role: String, of member: ServerClient.Member, in team: ServerClient.Team) {
+        run { client in
+            // Reload either way, so a refused change shows the role it still is.
+            defer { Task { try? await self.loadTeam(team.id, client: client) } }
+            try await client.setRole(role, of: member.userId, team: team.id)
+            self.notice = "\(member.email) is now \(role == "admin" ? "an admin" : "a \(role)") of \(team.name)."
+        }
+    }
+
+    func removeMember(_ member: ServerClient.Member, from team: ServerClient.Team) {
+        let leaving = member.userId == me?.user.id
+        run { client in
+            try await client.removeMember(member.userId, team: team.id)
+            self.me = try await client.me()
+            if leaving {
+                self.notice = "You left \(team.name)."
+                // Stop using what the team shared.
+                NotificationCenter.default.post(name: .accountChanged, object: self)
+            } else {
+                try await self.loadTeam(team.id, client: client)
+                self.notice = "Removed \(member.email) from \(team.name)."
+            }
+        }
+    }
+
+    func revokeInvite(_ invite: ServerClient.Invite, team: ServerClient.Team) {
+        run { client in
+            try await client.revokeInvite(id: invite.id, team: team.id)
+            try await self.loadTeam(team.id, client: client)
+            self.notice = "Withdrew the invite to \(invite.email)."
+        }
+    }
+
+    /// Add terms typed into a team's panel, separated by commas or new lines.
+    func addToGlossary(typed: String, team: ServerClient.Team) {
+        let terms = typed.split(whereSeparator: { $0 == "," || $0.isNewline })
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard !terms.isEmpty else { return }
+        run { client in
+            try await client.addGlossaryTerms(terms, team: team.id)
+            try await self.loadTeam(team.id, client: client)
+            self.notice = terms.count == 1 ? "Added \(terms[0]) to \(team.name)'s glossary." : "Added \(terms.count) terms to \(team.name)'s glossary."
+            NotificationCenter.default.post(name: .accountChanged, object: self)
+        }
+    }
+
+    func removeFromGlossary(_ term: ServerClient.GlossaryTerm, team: ServerClient.Team) {
+        run { client in
+            try await client.removeGlossaryTerm(id: term.id, team: team.id)
+            try await self.loadTeam(team.id, client: client)
+            self.notice = "Removed \(term.term) from \(team.name)'s glossary."
+            NotificationCenter.default.post(name: .accountChanged, object: self)
+        }
+    }
+
     func addToGlossary(_ term: String, team: ServerClient.Team) {
         run { client in
             try await client.addGlossaryTerms([term], team: team.id)
+            try? await self.loadTeam(team.id, client: client)
             self.notice = "Added \(term) to \(team.name)'s glossary."
             NotificationCenter.default.post(name: .accountChanged, object: self)
         }

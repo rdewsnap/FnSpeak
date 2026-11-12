@@ -15,6 +15,8 @@ import SwiftUI
 ///                                 and Accessibility were switched off
 ///   FNSPEAK_PREVIEW_MEETING=1     draw the app with a meeting about to start
 ///   FNSPEAK_PREVIEW_PLAN=1        draw the account page signed in, on a made-up plan
+///   FNSPEAK_PREVIEW_PLAN=team     the same, owning a made-up team with its panel open
+///   FNSPEAK_SNAPSHOT_HEIGHT=1800  with FNSPEAK_SNAPSHOTS: draw settings pages that tall
 ///   FNSPEAK_PREVIEW_SIGNIN=1      draw the account page signed out, with Google on offer
 ///   FNSPEAK_PREVIEW_CALENDARS=1   draw Connectors with a made-up Google account
 ///                                 ("refused": as if calendars were switched off)
@@ -42,6 +44,11 @@ enum DevTools {
                 controller.show(tab: .home)
                 let settings = SettingsWindowController(engine: engine, indexer: indexer)
                 settings.show()
+                // A taller settings window, for pages longer than one screen.
+                if let tall = ProcessInfo.processInfo.environment["FNSPEAK_SNAPSHOT_HEIGHT"].flatMap(Double.init),
+                   let window = settings.window {
+                    window.setContentSize(NSSize(width: window.contentLayoutRect.width, height: tall))
+                }
                 var shots: [(SettingsTab, NSAppearance.Name)] = []
                 for appearance in [NSAppearance.Name.aqua, .darkAqua] {
                     for tab in SettingsTab.allCases { shots.append((tab, appearance)) }

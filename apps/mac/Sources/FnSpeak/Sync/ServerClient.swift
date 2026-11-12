@@ -80,6 +80,23 @@ struct ServerClient {
         try await send("GET", "teams/\(id)")
     }
 
+    func renameTeam(id: String, name: String) async throws {
+        let _: Renamed = try await send("PATCH", "teams/\(id)", body: ["name": name])
+    }
+
+    func setRole(_ role: String, of userId: String, team teamId: String) async throws {
+        let _: Renamed = try await send("PATCH", "teams/\(teamId)/members/\(userId)", body: ["role": role])
+    }
+
+    /// Removes someone from a team, or the caller if it's their own id.
+    func removeMember(_ userId: String, team teamId: String) async throws {
+        try await sendEmpty("DELETE", "teams/\(teamId)/members/\(userId)")
+    }
+
+    func revokeInvite(id: String, team teamId: String) async throws {
+        try await sendEmpty("DELETE", "teams/\(teamId)/invites/\(id)")
+    }
+
     func invite(email: String, role: String, toTeam teamId: String) async throws -> Invite {
         try await send("POST", "teams/\(teamId)/invites", body: ["email": email, "role": role])
     }
@@ -103,6 +120,16 @@ struct ServerClient {
     func glossary() async throws -> [GlossaryTerm] {
         let list: GlossaryList = try await send("GET", "glossary")
         return list.terms
+    }
+
+    /// One team's terms, with who added each.
+    func glossary(team teamId: String) async throws -> [GlossaryTerm] {
+        let list: GlossaryList = try await send("GET", "teams/\(teamId)/glossary")
+        return list.terms
+    }
+
+    func removeGlossaryTerm(id: String, team teamId: String) async throws {
+        try await sendEmpty("DELETE", "teams/\(teamId)/glossary/\(id)")
     }
 
     func addGlossaryTerms(_ terms: [String], team teamId: String) async throws {
@@ -372,11 +399,16 @@ extension ServerClient {
         let teams: [Team]
     }
 
-    struct GlossaryTerm: Decodable {
+    struct GlossaryTerm: Decodable, Identifiable, Equatable {
         let id: String
         let teamId: String
         let term: String
+        /// The email of whoever added it, when the server says.
+        var addedBy: String?
     }
+
+    /// The answer to a change whose details the app doesn't need.
+    struct Renamed: Decodable {}
 
     struct GlossaryList: Decodable { let terms: [GlossaryTerm] }
     struct AddedTerms: Decodable {}
