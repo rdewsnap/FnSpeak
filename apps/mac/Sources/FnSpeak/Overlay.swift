@@ -554,12 +554,12 @@ private struct PillView: View {
                 // A drawn wave, not a symbol: a line stays crisp however low the pill is.
                 SineWave()
                     .stroke(style: StrokeStyle(lineWidth: 1.3 * model.scale, lineCap: .round, lineJoin: .round))
-                    .frame(width: 26 * model.scale, height: 2.5 * model.scale)
+                    .frame(width: 21 * model.scale, height: 2.5 * model.scale)
                     .rotationEffect(.degrees(onSide ? 90 : 0))
-                    .frame(width: (onSide ? 2.5 : 26) * model.scale, height: (onSide ? 26 : 2.5) * model.scale)
+                    .frame(width: (onSide ? 2.5 : 21) * model.scale, height: (onSide ? 21 : 2.5) * model.scale)
                     .foregroundStyle(.white.opacity(0.6))
-                    .padding(.horizontal, (onSide ? 4.25 : 16) * model.scale)
-                    .padding(.vertical, (onSide ? 16 : 4.25) * model.scale)
+                    .padding(.horizontal, (onSide ? 4.25 : 12.5) * model.scale)
+                    .padding(.vertical, (onSide ? 12.5 : 4.25) * model.scale)
             }
         }
         .padding(expanded ? 3 * model.scale : 0)
@@ -604,9 +604,9 @@ private struct PillView: View {
         let dot = Circle().fill(Color.red).frame(width: 6 * model.scale, height: 6 * model.scale)
         let wave = SineWave()
             .stroke(style: StrokeStyle(lineWidth: 1.3 * model.scale, lineCap: .round, lineJoin: .round))
-            .frame(width: 18 * model.scale, height: 2.5 * model.scale)
+            .frame(width: 13 * model.scale, height: 2.5 * model.scale)
             .rotationEffect(.degrees(onSide ? 90 : 0))
-            .frame(width: (onSide ? 2.5 : 18) * model.scale, height: (onSide ? 18 : 2.5) * model.scale)
+            .frame(width: (onSide ? 2.5 : 13) * model.scale, height: (onSide ? 13 : 2.5) * model.scale)
             .foregroundStyle(.white.opacity(0.75))
         let time = TimelineView(.periodic(from: since, by: 1)) { context in
             Text(Duration.seconds(max(0, context.date.timeIntervalSince(since)))
@@ -622,8 +622,8 @@ private struct PillView: View {
                 HStack(spacing: 5 * model.scale) { dot; if expanded { time } else { wave } }
             }
         }
-        .padding(.horizontal, (expanded ? 8 : onSide ? 4.25 : 12) * model.scale)
-        .padding(.vertical, (expanded ? 6 : onSide ? 12 : 4.25) * model.scale)
+        .padding(.horizontal, (expanded ? 8 : onSide ? 4.25 : 9) * model.scale)
+        .padding(.vertical, (expanded ? 6 : onSide ? 9 : 4.25) * model.scale)
         .contentShape(Rectangle())
         .onTapGesture { model.openMeeting?() }
         .help("Show or fold away the meeting")
