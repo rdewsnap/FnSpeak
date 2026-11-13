@@ -25,6 +25,9 @@ const CHARS_PER_TOKEN: usize = 3;
 /// Room for the message wrapper and tokenizer surprises.
 const MARGIN_TOKENS: usize = 256;
 const MAX_VOCAB_IN_PROMPT: usize = 40;
+/// The pad rides along with every part of a long transcript, so it's kept
+/// to what a 4k context can spare.
+const MAX_NOTES_CHARS: usize = 1500;
 /// Merging partial summaries can't recurse forever on a tiny context.
 const MAX_REDUCE_ROUNDS: usize = 4;
 
@@ -114,6 +117,13 @@ fn meeting_header(meeting: &Meeting, segments: &[Segment], vocabulary: &[String]
         out.push_str("Perspective: the user only listened; write in the third person.\n");
     }
     out.push_str("</meeting>\n");
+    if let Some(notes) = meeting.notes_md.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        let mut end = notes.len().min(MAX_NOTES_CHARS);
+        while !notes.is_char_boundary(end) {
+            end -= 1;
+        }
+        let _ = writeln!(out, "<my_notes>\n{}\n</my_notes>", &notes[..end]);
+    }
     if !vocabulary.is_empty() {
         let terms: Vec<&str> = vocabulary.iter().take(MAX_VOCAB_IN_PROMPT).map(String::as_str).collect();
         let _ = writeln!(out, "<vocabulary>{}</vocabulary>", terms.join(", "));
@@ -326,6 +336,23 @@ mod tests {
             assert!(c.len() / CHARS_PER_TOKEN < 4096, "prompt too big: {} chars", c.len());
         }
         assert_eq!(m.summary_md.unwrap(), format!("## Summary\n- Call {}\n\n## Action items\n- [ ] Priya: Draft release notes (Thursday)\n", calls.len()));
+    }
+
+    #[test]
+    fn the_pad_goes_to_the_model_with_every_part() {
+        let (store, id) = store_with_meeting(400);
+        store.lock().unwrap().set_meeting_notes(id, "Ship date moved to the 14th. Ask Priya about pricing.").unwrap();
+        let llm = Fake::new(4096);
+        summarize_meeting(&store, Some(&llm), &[], id).unwrap();
+        let calls = llm.calls();
+        assert!(calls.len() > 2);
+        for c in &calls {
+            assert!(c.contains("<my_notes>\nShip date moved to the 14th. Ask Priya about pricing.\n</my_notes>"), "{c}");
+            assert!(c.len() / CHARS_PER_TOKEN < 4096, "prompt too big: {} chars", c.len());
+        }
+        // Clearing the pad takes it back out.
+        store.lock().unwrap().set_meeting_notes(id, "  ").unwrap();
+        assert_eq!(store.lock().unwrap().meeting(id).unwrap().unwrap().0.notes_md, None);
     }
 
     #[test]

@@ -127,6 +127,10 @@ pub struct Meeting {
     pub action_items: Vec<ActionItem>,
     /// The timestamped transcript as Markdown, frozen when recording stops.
     pub raw_transcript_md: Option<String>,
+    /// What the user typed on the meeting's pad. Theirs alone: it feeds the
+    /// summary but isn't shared or synced.
+    #[serde(default)]
+    pub notes_md: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -177,7 +181,7 @@ pub struct NotesStore {
 
 const NOTE_COLUMNS: &str = "id, created_at, updated_at, title, body_md, source, meeting_id, tags_json, pinned";
 const MEETING_COLUMNS: &str =
-    "id, started_at, ended_at, title, calendar_event_id, participants_json, status, summary_md, action_items_json, raw_transcript_md";
+    "id, started_at, ended_at, title, calendar_event_id, participants_json, status, summary_md, action_items_json, raw_transcript_md, notes_md";
 const SEGMENT_COLUMNS: &str = "id, meeting_id, started_ms, ended_ms, speaker, raw, text";
 
 impl NotesStore {
@@ -204,7 +208,8 @@ impl NotesStore {
                  status            TEXT NOT NULL CHECK (status IN ('recording', 'processing', 'done')),
                  summary_md        TEXT,
                  action_items_json TEXT,
-                 raw_transcript_md TEXT
+                 raw_transcript_md TEXT,
+                 notes_md          TEXT
              );
              CREATE INDEX IF NOT EXISTS meetings_started ON meetings (started_at);
 
@@ -277,6 +282,11 @@ impl NotesStore {
                  INSERT INTO segments_fts (rowid, text) VALUES (new.id, new.text);
              END;",
         )?;
+        // Databases from before the meeting pad don't have its column.
+        let has_notes = conn.prepare("SELECT 1 FROM pragma_table_info('meetings') WHERE name = 'notes_md'")?.exists([])?;
+        if !has_notes {
+            conn.execute("ALTER TABLE meetings ADD COLUMN notes_md TEXT", [])?;
+        }
         Ok(NotesStore { conn })
     }
 
@@ -370,6 +380,16 @@ impl NotesStore {
             return Err(rusqlite::Error::QueryReturnedNoRows);
         }
         self.meeting_row(id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+    }
+
+    /// Replace the meeting's pad. Empty clears it.
+    pub fn set_meeting_notes(&self, id: i64, notes_md: &str) -> Result<()> {
+        let notes = Some(notes_md).filter(|n| !n.trim().is_empty());
+        let changed = self.conn.execute("UPDATE meetings SET notes_md = ?2 WHERE id = ?1", params![id, notes])?;
+        if changed == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        Ok(())
     }
 
     pub fn rename_meeting(&self, id: i64, title: &str) -> Result<Meeting> {
@@ -475,6 +495,9 @@ impl NotesStore {
         if !summary.is_empty() {
             out.push_str(&summary);
             out.push_str("\n\n");
+        }
+        if let Some(notes) = m.notes_md.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+            out.push_str(&format!("## My notes\n\n{notes}\n\n"));
         }
         if !m.action_items.is_empty() {
             out.push_str("## Action items\n");
@@ -664,6 +687,7 @@ fn row_to_meeting(r: &Row<'_>) -> Result<Meeting> {
         summary_md: r.get(7)?,
         action_items: from_json(r.get(8)?),
         raw_transcript_md: r.get(9)?,
+        notes_md: r.get(10)?,
     })
 }
 
@@ -700,6 +724,36 @@ mod tests {
         store.append_segment(m.id, 0, 4_000, SPEAKER_ME, "um so the launch is friday", "So the launch is Friday").unwrap();
         store.append_segment(m.id, 754_000, 760_000, SPEAKER_OTHERS, "i'll draft the release notes", "I'll draft the release notes").unwrap();
         m
+    }
+
+    #[test]
+    fn a_database_from_before_the_pad_gains_its_column() {
+        let dir = std::env::temp_dir().join(format!("fnspeak-pad-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("notes.db");
+        let _ = std::fs::remove_file(&path);
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE meetings (
+                     id INTEGER PRIMARY KEY, started_at INTEGER NOT NULL, ended_at INTEGER, title TEXT NOT NULL,
+                     calendar_event_id TEXT, participants_json TEXT NOT NULL DEFAULT '[]',
+                     status TEXT NOT NULL CHECK (status IN ('recording', 'processing', 'done')),
+                     summary_md TEXT, action_items_json TEXT, raw_transcript_md TEXT);
+                 INSERT INTO meetings (started_at, title, status) VALUES (1700000000, 'Old one', 'done');",
+            )
+            .unwrap();
+        }
+        let store = NotesStore::open(&path).unwrap();
+        let (old, _) = store.meeting(1).unwrap().unwrap();
+        assert_eq!((old.title.as_str(), old.notes_md), ("Old one", None));
+        store.set_meeting_notes(1, "Remember the budget").unwrap();
+        assert_eq!(store.meeting(1).unwrap().unwrap().0.notes_md.as_deref(), Some("Remember the budget"));
+        assert!(store.export_meeting_markdown(1).unwrap().contains("## My notes\n\nRemember the budget\n"));
+        // Opening it again doesn't try to add the column twice.
+        drop(store);
+        NotesStore::open(&path).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

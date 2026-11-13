@@ -856,6 +856,8 @@ pub struct Meeting {
     pub action_items: Vec<ActionItem>,
     /// The timestamped transcript, frozen when recording stopped.
     pub transcript_md: Option<String>,
+    /// What the user typed on the meeting's pad.
+    pub notes_md: Option<String>,
     /// Filled by `meeting(id)` and `finish_meeting`; empty in `meetings(limit)`.
     pub segments: Vec<Segment>,
 }
@@ -877,6 +879,7 @@ impl Meeting {
                 .map(|a| ActionItem { owner: a.owner, task: a.task, due: a.due, done: a.done })
                 .collect(),
             transcript_md: m.raw_transcript_md,
+            notes_md: m.notes_md,
             segments: segments.into_iter().map(Segment::from).collect(),
         }
     }
@@ -1089,6 +1092,12 @@ impl FnSpeakEngine {
             return Err(FnSpeakError::Meeting("finish the meeting before deleting it".into()));
         }
         self.store().delete_meeting(id).map_err(storage_err)
+    }
+
+    /// Save the meeting's pad: what the user typed during it. It goes into
+    /// the summary as context the next time one is written.
+    pub fn set_meeting_notes(&self, id: i64, notes: String) -> Result<(), FnSpeakError> {
+        self.store().set_meeting_notes(id, &notes).map_err(|e| missing_meeting(e, id))
     }
 
     pub fn rename_meeting(&self, id: i64, title: String) -> Result<Meeting, FnSpeakError> {
