@@ -8,6 +8,10 @@ final class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDeleg
 
     enum Item: String, CaseIterable, Identifiable {
         case whisper, cleanup, parakeet, speakers
+        /// The general model, wanted for meeting summaries when the cleanup
+        /// model on disk is one trained only for cleanup. The same file the
+        /// cleanup download fetches.
+        case general
 
         var id: String { rawValue }
 
@@ -17,6 +21,7 @@ final class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDeleg
             case .cleanup: return "Cleanup model (Qwen3 4B)"
             case .parakeet: return "Faster speech model (Parakeet)"
             case .speakers: return "Speaker model (CAM++)"
+            case .general: return "Summary model (Qwen3 4B)"
             }
         }
 
@@ -24,7 +29,7 @@ final class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDeleg
         var size: String {
             switch self {
             case .whisper: return "550 MB"
-            case .cleanup: return "2.5 GB"
+            case .cleanup, .general: return "2.5 GB"
             case .parakeet: return "650 MB"
             case .speakers: return "28 MB"
             }
@@ -32,7 +37,7 @@ final class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDeleg
 
         var source: String {
             switch self {
-            case .whisper, .cleanup: return "huggingface.co"
+            case .whisper, .cleanup, .general: return "huggingface.co"
             case .parakeet, .speakers: return "github.com"
             }
         }
@@ -41,7 +46,7 @@ final class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDeleg
             switch self {
             case .whisper:
                 return URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin")!
-            case .cleanup:
+            case .cleanup, .general:
                 return URL(string: "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf")!
             case .parakeet:
                 return URL(string: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2")!
@@ -55,7 +60,7 @@ final class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDeleg
         var fileName: String {
             switch self {
             case .whisper: return "ggml-large-v3-turbo-q5_0.bin"
-            case .cleanup: return "Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+            case .cleanup, .general: return "Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
             case .parakeet: return "parakeet.tar.bz2"
             case .speakers: return ModelLocator.speakerModelName
             }
@@ -68,6 +73,7 @@ final class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDeleg
             case .cleanup: return ModelLocator.cleanupModel != nil
             case .parakeet: return ModelLocator.parakeetModel != nil
             case .speakers: return ModelLocator.speakerModel != nil
+            case .general: return ModelDownloader.hasGeneralModel
             }
         }
     }
@@ -106,15 +112,8 @@ final class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDeleg
         FileManager.default.fileExists(atPath: ModelLocator.modelsDirectory.appendingPathComponent(Item.cleanup.fileName).path)
     }
 
-    /// Fetch the general model for meeting summaries. It's the same file as
-    /// the cleanup download, wanted here even though a cleanup model exists.
-    func downloadGeneralModel() {
-        guard !Self.hasGeneralModel else { return }
-        download(.cleanup, evenIfPresent: true)
-    }
-
-    func download(_ item: Item, evenIfPresent: Bool = false) {
-        guard tasks[item] == nil, state(item) != .unpacking, evenIfPresent || !item.isPresent else { return }
+    func download(_ item: Item) {
+        guard tasks[item] == nil, state(item) != .unpacking, !item.isPresent else { return }
         let task = session.downloadTask(with: item.url)
         task.taskDescription = item.rawValue
         tasks[item] = task

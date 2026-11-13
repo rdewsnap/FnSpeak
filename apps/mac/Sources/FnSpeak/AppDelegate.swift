@@ -263,7 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch item {
         case .whisper, .parakeet:
             if !engine.isReady { engine.load() }
-        case .cleanup:
+        case .cleanup, .general:
             if prefs.mode == "local" {
                 if engine.isReady { engine.reconfigureCleanup() } else if engine.status != .loading { engine.load() }
             }

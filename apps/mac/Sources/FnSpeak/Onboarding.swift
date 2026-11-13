@@ -32,6 +32,9 @@ struct OnboardingView: View {
     @State private var micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
     @State private var axGranted = ContextReader.requestAccessibility(prompt: false)
     @State private var choice = "filterOnly"
+    /// Meetings need models that dictation doesn't, so they're only fetched
+    /// for someone who says they'll record meetings.
+    @State private var recordsMeetings = false
     @State private var practice = ""
     /// The models listed on the download step.
     @State private var shownModels: [ModelDownloader.Item] = []
@@ -104,6 +107,12 @@ struct OnboardingView: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
             Text("You can change this any time in Settings.").font(.callout).foregroundStyle(.secondary)
+            Divider().padding(.vertical, 4)
+            Toggle("I'll record meetings with FnSpeak too", isOn: $recordsMeetings)
+                .onChange(of: recordsMeetings) { shownModels = [] }
+            Text("Adds what meetings need to the downloads: a small model that tells the people on a call apart, and one that can write summaries if this Mac doesn't have one. Leave it off and you can still get them later from a meeting.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -113,6 +122,13 @@ struct OnboardingView: View {
         var needed: [(ModelDownloader.Item, String)] = []
         if !ModelDownloader.Item.whisper.isPresent { needed.append((.whisper, Self.note(for: .whisper))) }
         if choice == "local", !ModelDownloader.Item.cleanup.isPresent { needed.append((.cleanup, Self.note(for: .cleanup))) }
+        if recordsMeetings {
+            if !ModelDownloader.Item.speakers.isPresent { needed.append((.speakers, Self.note(for: .speakers))) }
+            // The cleanup download is a general model and writes summaries
+            // itself. Only a Mac that already has a cleanup-only model
+            // needs a second one for them.
+            if choice == "local", ModelLocator.lacksSummaryModel { needed.append((.general, Self.note(for: .general))) }
+        }
         return needed
     }
 
@@ -122,6 +138,7 @@ struct OnboardingView: View {
         case .cleanup: return "Tidies what you said."
         case .parakeet: return "A faster speech model."
         case .speakers: return "Tells the people on a call apart."
+        case .general: return "Writes meeting summaries."
         }
     }
 

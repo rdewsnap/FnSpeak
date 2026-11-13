@@ -88,6 +88,13 @@ enum ModelLocator {
         return cleanupModelCandidates.filter { !isFineTune($0) }.max { size($0) < size($1) }
     }
 
+    /// The cleanup model on disk can't write summaries and nothing else
+    /// here can, whatever mode is in use.
+    static var lacksSummaryModel: Bool {
+        guard let main = cleanupModel else { return false }
+        return isFineTune(main) && summaryModel == nil
+    }
+
     /// Local mode with a cleanup-only model and nothing to summarize with.
     static var summaryNeedsModel: Bool {
         guard Preferences.shared.mode == "local", let main = cleanupModel else { return false }

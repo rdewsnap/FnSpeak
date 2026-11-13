@@ -220,7 +220,7 @@ struct MeetingSummaryModelNotice: View {
     @ObservedObject private var downloader = ModelDownloader.shared
 
     var body: some View {
-        let item = ModelDownloader.Item.cleanup
+        let item = ModelDownloader.Item.general
         VStack(alignment: .leading, spacing: 8) {
             Text("Summaries need the general model. The one on this Mac only tidies dictation.")
                 .font(.callout).fixedSize(horizontal: false, vertical: true)
@@ -237,9 +237,9 @@ struct MeetingSummaryModelNotice: View {
             case .failed(let message):
                 Text("Download failed. \(message)").font(.callout).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
-                Button("Try again") { downloader.downloadGeneralModel() }.controlSize(.small)
+                Button("Try again") { downloader.download(item) }.controlSize(.small)
             case .idle:
-                Button("Download (\(item.size))") { downloader.downloadGeneralModel() }.controlSize(.small)
+                Button("Download (\(item.size))") { downloader.download(item) }.controlSize(.small)
             }
         }
         .padding(10)
