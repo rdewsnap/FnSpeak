@@ -54,7 +54,11 @@ enum DevTools {
                     for tab in SettingsTab.allCases { shots.append((tab, appearance)) }
                 }
                 capture(shots[...], windows: (controller, settings), directory: directory) {
-                    onboarding(engine: engine, directory: directory) { NSApp.terminate(nil) }
+                    dock(engine: engine, directory: directory) {
+                        pill(directory: directory) {
+                            onboarding(engine: engine, directory: directory) { NSApp.terminate(nil) }
+                        }
+                    }
                 }
             }
           }
@@ -108,6 +112,75 @@ enum DevTools {
             work()
         }
         poll()
+    }
+
+    /// The idle pill open on each edge, with a hover label up.
+    private static func pill(directory: URL, done: @escaping () -> Void) {
+        let sample = [
+            Overlay.AgendaItem(id: "a", title: "Weekly product sync", when: "in 12 min", hasLink: true) {},
+            Overlay.AgendaItem(id: "b", title: "Design review with a long title that runs on", when: "2:30 PM", hasLink: false) {},
+            Overlay.AgendaItem(id: "c", title: "1:1 with Sam", when: "4:00 PM", hasLink: true) {},
+        ]
+        let shots: [(Alignment, String, String, [Overlay.AgendaItem]?)] = [
+            (.bottom, "bottom", "meeting", []), (.top, "top", "dictate", nil),
+            (.leading, "left", "dictate", nil), (.trailing, "right", "meeting", sample),
+        ]
+        func shoot(_ index: Int) {
+            guard index < shots.count else { return done() }
+            let (alignment, name, hovering, agenda) = shots[index]
+            let view = Overlay.previewView(alignment: alignment, hovering: hovering, agenda: agenda)
+            let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = view
+            window.orderFront(nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                if let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                    view.cacheDisplay(in: view.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?
+                        .write(to: directory.appendingPathComponent("pill-\(name).png"))
+                }
+                window.close()
+                shoot(index + 1)
+            }
+        }
+        shoot(0)
+    }
+
+    /// The meeting dock in each of its phases, light and dark.
+    private static func dock(engine: EngineController, directory: URL, done: @escaping () -> Void) {
+        let controller = MeetingController(engine: engine, overlay: Overlay())
+        var shots: [(MeetingController.Phase, String, NSAppearance.Name)] = []
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            shots.append((.setup, "setup", appearance))
+            shots.append((.recording, "recording", appearance))
+            shots.append((.processing, "processing", appearance))
+            shots.append((.recording, "notes", appearance))
+        }
+        func shoot(_ index: Int) {
+            guard index < shots.count else { return done() }
+            let (phase, name, appearance) = shots[index]
+            controller.preview(phase)
+            controller.pad = name == "notes" ? "Ship date moved to the 14th\n\nAsk Priya about pricing before Friday" : ""
+            let view = MeetingDock.previewView(controller: controller, onLeft: false, tab: name == "notes" ? .notes : .transcript)
+            let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.backgroundColor = .clear
+            window.isOpaque = false
+            window.appearance = NSAppearance(named: appearance)
+            window.contentView = view
+            window.orderFront(nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                if let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                    view.cacheDisplay(in: view.bounds, to: rep)
+                    let suffix = appearance == .darkAqua ? "-dark" : ""
+                    try? rep.representation(using: .png, properties: [:])?
+                        .write(to: directory.appendingPathComponent("dock-\(name)\(suffix).png"))
+                }
+                window.close()
+                shoot(index + 1)
+            }
+        }
+        shoot(0)
     }
 
     /// Each onboarding step, in its own window.

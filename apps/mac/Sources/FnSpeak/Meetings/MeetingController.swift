@@ -34,9 +34,19 @@ final class MeetingController: NSObject, ObservableObject {
     @Published private(set) var systemLevel: Float = 0
     /// Why the other side isn't being recorded, when it isn't.
     @Published private(set) var systemAudioNote: String?
-    /// The meeting the window shows once recording is over.
+    /// The meeting the dock shows once recording is over.
     @Published private(set) var finished: Meeting?
+    /// A meeting the Meetings page should select when it next appears.
+    @Published var focusMeetingId: Int64?
     @Published var error: String?
+    /// The meeting's pad: what the user types while it runs. It belongs to
+    /// the meeting, is saved as it's typed, and goes into the summary.
+    @Published var pad = "" {
+        didSet { if pad != oldValue { padChanged() } }
+    }
+    /// The meeting the pad belongs to, and a save waiting for typing to pause.
+    private var padMeetingId: Int64?
+    private var padSave: DispatchWorkItem?
     /// Bumped whenever stored meetings change, so lists reload.
     @Published private(set) var revision = 0
 
@@ -63,7 +73,10 @@ final class MeetingController: NSObject, ObservableObject {
     private var subscriptions: Set<AnyCancellable> = []
     private var began = false
 
-    private lazy var window = MeetingWindowController(controller: self)
+    /// Where a meeting is shown: docked to the side of the screen.
+    private lazy var dock = MeetingDock(controller: self)
+    /// Set by the app: put the main window away while the meeting is docked.
+    var hideApp: (() -> Void)?
     private lazy var listWindow = MeetingsListWindowController(controller: self)
     /// Set by the app: show the Meetings page in the main window.
     var showLibrary: (() -> Void)?
@@ -114,7 +127,7 @@ final class MeetingController: NSObject, ObservableObject {
     /// With a title (from a link or Shortcut) recording starts straight
     /// away, without asking.
     func requestStart(title: String? = nil) {
-        guard phase == .idle else { return showWindow() }
+        guard phase == .idle else { return dock.show() }
         guard core != nil else {
             if case .failed(let message) = engine.status { return overlay.show(.error(Overlay.reason(message))) }
             return overlay.show(.message("Still loading the speech model"))
@@ -135,8 +148,10 @@ final class MeetingController: NSObject, ObservableObject {
             if let title { self.draft.title = title }
             if self.prefs.meetingAskTitle && title == nil {
                 self.finished = nil
+                self.error = nil
                 self.phase = .setup
-                self.showWindow()
+                self.hideApp?()
+                self.dock.show()
             } else {
                 self.beginRecording()
             }
@@ -146,7 +161,6 @@ final class MeetingController: NSObject, ObservableObject {
     func cancelSetup() {
         guard phase == .setup else { return }
         phase = .idle
-        window.close()
     }
 
     /// Start recording with the current draft.
@@ -157,6 +171,8 @@ final class MeetingController: NSObject, ObservableObject {
         error = nil
         systemAudioNote = nil
         finished = nil
+        padMeetingId = nil
+        pad = ""
         var draft = self.draft
         draft.title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if draft.title.isEmpty { draft.title = Self.defaultTitle() }
@@ -180,7 +196,7 @@ final class MeetingController: NSObject, ObservableObject {
             phase = .idle
             self.error = Self.message(for: error)
             Log.error("Meeting failed to start: \(error.localizedDescription)")
-            return showWindow()
+            return dock.show()
         }
 
         audio.onSamples = { source, samples in core.feedMeetingAudio(source: source, samples: samples) }
@@ -195,17 +211,20 @@ final class MeetingController: NSObject, ObservableObject {
                 _ = try? core.deleteMeeting(id: meeting.id)
                 core.setMeetingListener(listener: nil)
             }
-            return showWindow()
+            return dock.show()
         }
 
         recordingCore = core
         current = meeting
+        padMeetingId = meeting.id
         startedAt = Date()
         phase = .recording
         Log.info("Meeting \(meeting.id) started")
-        overlay.showMeeting(since: startedAt!) { [weak self] in self?.showWindow() }
+        // The pill shows it's recording; clicking it folds the dock in and out.
+        overlay.showMeeting(since: startedAt!) { [weak self] in self?.dock.toggle() }
         onRecordingChange?()
-        showWindow()
+        hideApp?()
+        dock.show(tab: .transcript)
 
         if prefs.meetingSystemAudio {
             Task { [audio] in
@@ -232,8 +251,14 @@ final class MeetingController: NSObject, ObservableObject {
         phase = .processing
         overlay.endMeeting()
         onRecordingChange?()
+        // Stopped from anywhere, the summary turns up in the dock.
+        dock.show(tab: .summary)
         let id = current?.id
+        // The pad has to be on the meeting before the summary is written.
+        padSave?.cancel()
+        let pad = self.pad
         queue.async {
+            if let id { try? core.setMeetingNotes(id: id, notes: pad) }
             let result = Result { try core.finishMeeting() }
             // On failure the transcript is still saved; show what there is.
             let fallback = (try? result.get()) == nil ? id.flatMap { try? core.meeting(id: $0) } : nil
@@ -314,21 +339,16 @@ final class MeetingController: NSObject, ObservableObject {
         }
     }
 
-    /// Save a note against the meeting being recorded.
-    func addQuickNote(_ text: String, completion: @escaping (Bool) -> Void) {
-        let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty, let core, let meeting = current else { return completion(false) }
-        // A given title keeps the cleanup model free for the live transcript.
-        let stamp = startedAt.map { Self.timestamp(ms: Int64(Date().timeIntervalSince($0) * 1000)) } ?? ""
-        let note = NoteInput(title: "\(meeting.title) — note at \(stamp)", bodyMd: body, source: .meeting,
-                             meetingId: meeting.id, tags: ["meeting"], pinned: false)
-        DispatchQueue.global(qos: .userInitiated).async {
-            let saved = try? core.createNote(note: note)
-            DispatchQueue.main.async {
-                if let saved { Integrations.noteCreated(saved) }
-                completion(saved != nil)
-            }
+    /// Save the pad a moment after the typing stops.
+    private func padChanged() {
+        padSave?.cancel()
+        guard let id = padMeetingId, let core = engine.core else { return }
+        let text = pad
+        let save = DispatchWorkItem { [weak self] in
+            self?.queue.async { try? core.setMeetingNotes(id: id, notes: text) }
         }
+        padSave = save
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: save)
     }
 
     func export(_ meeting: Meeting) {
@@ -366,7 +386,7 @@ final class MeetingController: NSObject, ObservableObject {
         meeting(id: id) { [weak self] found in
             guard let self else { return }
             NSApp.activate(ignoringOtherApps: true)
-            if let found { self.show(found) } else { self.showList() }
+            if let found { self.showInApp(found.id) } else { self.showList() }
         }
     }
 
@@ -461,16 +481,17 @@ final class MeetingController: NSObject, ObservableObject {
 
     // MARK: - Windows and menu
 
-    func showWindow() {
-        window.show()
+    /// For DevTools: stand in a phase without recording anything, so the dock can be drawn.
+    func preview(_ phase: Phase) {
+        draft = Draft(title: "Weekly product sync", participants: ["Ana", "Sam", "Priya"])
+        startedAt = phase == .recording ? Date().addingTimeInterval(-754) : nil
+        self.phase = phase
     }
 
-    /// The meeting window, showing a stored meeting.
-    func show(_ meeting: Meeting) {
-        guard phase == .idle else { return showWindow() }
-        finished = meeting
-        error = nil
-        window.show()
+    /// The Meetings page of the main window, on this meeting if there is one.
+    func showInApp(_ id: Int64?) {
+        if let id { focusMeetingId = id }
+        showList()
     }
 
     @objc func showList() {
@@ -486,7 +507,7 @@ final class MeetingController: NSObject, ObservableObject {
         case .processing:
             toggle = NSMenuItem(title: "Summarizing meeting…", action: nil, keyEquivalent: "")
         case .setup, .starting:
-            toggle = NSMenuItem(title: "Start meeting…", action: #selector(showMeetingWindow), keyEquivalent: "")
+            toggle = NSMenuItem(title: "Start meeting…", action: #selector(showDock), keyEquivalent: "")
         case .idle:
             toggle = NSMenuItem(title: "Start meeting…", action: #selector(toggleMeeting), keyEquivalent: "")
         }
@@ -497,8 +518,8 @@ final class MeetingController: NSObject, ObservableObject {
         menu.addItem(list)
     }
 
-    @objc private func showMeetingWindow() {
-        showWindow()
+    @objc private func showDock() {
+        dock.show()
     }
 
     // MARK: - Helpers

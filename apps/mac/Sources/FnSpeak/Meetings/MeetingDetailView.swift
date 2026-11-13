@@ -26,6 +26,7 @@ struct MeetingDetailView: View {
                     }
                     summary
                     actionItems
+                    myNotes
                     transcript
                 }
                 .padding(20)
@@ -146,6 +147,21 @@ struct MeetingDetailView: View {
                 .padding(6)
             } label: {
                 Label("Action items", systemImage: "checklist")
+            }
+        }
+    }
+
+    /// What was typed on the meeting's pad.
+    @ViewBuilder
+    private var myNotes: some View {
+        if let notes = meeting.notesMd?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty {
+            GroupBox {
+                Text(notes)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(6)
+            } label: {
+                Label("My notes", systemImage: "pencil.line")
             }
         }
     }

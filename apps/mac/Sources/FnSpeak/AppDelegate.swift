@@ -106,6 +106,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SettingsRouter.shared.openSettingsWindow = { [weak self] in self?.showSettingsWindow() }
         notes.showLibrary = { [weak self] in self?.showSettings(tab: .notesPage) }
         meetings.showLibrary = { [weak self] in self?.showSettings(tab: .meetingsPage) }
+        // Docking a meeting to the edge takes the place of the main window.
+        meetings.hideApp = { [weak self] in self?.mainWindow?.window?.orderOut(nil) }
         UpcomingMeetings.shared.start()
         ModelDownloader.shared.onReady = { [weak self] item in self?.modelArrived(item) }
 

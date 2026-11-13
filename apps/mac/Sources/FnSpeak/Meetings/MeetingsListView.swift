@@ -59,6 +59,7 @@ struct MeetingsListView: View {
         // beside the close buttons. The window sets its own name.
         .task(id: controller.revision) { reload() }
         .task(id: query) { await runSearch() }
+        .onChange(of: controller.focusMeetingId) { takeFocus() }
         .kitHeader("Meetings") {
             Button {
                 controller.requestStart()
@@ -117,7 +118,16 @@ struct MeetingsListView: View {
             meetings = list
             loaded = true
             if let selection, !list.contains(where: { $0.id == selection }) { self.selection = nil }
+            takeFocus()
         }
+    }
+
+    /// Select the meeting the dock handed over.
+    private func takeFocus() {
+        guard let id = controller.focusMeetingId, meetings.contains(where: { $0.id == id }) else { return }
+        query = ""
+        selection = id
+        controller.focusMeetingId = nil
     }
 
     private func runSearch() async {
