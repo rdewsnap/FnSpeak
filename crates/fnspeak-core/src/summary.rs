@@ -15,6 +15,9 @@ pub const NOTE_TITLE_PROMPT: &str = include_str!("../../../prompts/note_title.md
 
 /// Stored instead of a summary in filter-only and raw modes.
 pub const NO_MODEL_SUMMARY: &str = "_Summaries need a cleanup model. Switch to Local or Cloud mode to summarize this meeting._";
+/// Stored instead of a summary when the local model is one trained only for
+/// cleanup and there's no general model to write the summary with.
+pub const NEEDS_GENERAL_MODEL_SUMMARY: &str = "_Summaries need the general model. Download it, then summarize this meeting again._";
 const EMPTY_SUMMARY: &str = "_Nothing was transcribed in this meeting._";
 
 /// A rough, deliberately low estimate so chunks err on the small side.
@@ -37,6 +40,11 @@ pub enum SummaryError {
 /// meeting is marked done with a note saying summaries need one. The store
 /// is only locked around reads and writes, never during model calls.
 pub fn summarize_meeting(store: &Mutex<NotesStore>, llm: Option<&dyn Llm>, vocabulary: &[String], id: i64) -> Result<Meeting, SummaryError> {
+    summarize_meeting_or(store, llm, vocabulary, id, NO_MODEL_SUMMARY)
+}
+
+/// As `summarize_meeting`, with what to store when there's no model to ask.
+pub fn summarize_meeting_or(store: &Mutex<NotesStore>, llm: Option<&dyn Llm>, vocabulary: &[String], id: i64, without_model: &str) -> Result<Meeting, SummaryError> {
     let lock = || store.lock().unwrap_or_else(|e| e.into_inner());
     let (meeting, segments) = lock().meeting(id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
     if meeting.raw_transcript_md.is_none() {
@@ -48,7 +56,7 @@ pub fn summarize_meeting(store: &Mutex<NotesStore>, llm: Option<&dyn Llm>, vocab
     } else {
         match llm {
             Some(llm) => summarize(llm, &meeting, &segments, vocabulary)?,
-            None => NO_MODEL_SUMMARY.to_string(),
+            None => without_model.to_string(),
         }
     };
     Ok(lock().set_summary(id, &summary, &parse_action_items(&summary))?)

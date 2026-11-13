@@ -5,6 +5,7 @@ import SwiftUI
 struct MeetingDetailView: View {
     @ObservedObject var controller: MeetingController
     @ObservedObject private var prefs = Preferences.shared
+    @ObservedObject private var downloader = ModelDownloader.shared
     @State var meeting: Meeting
     @State private var resummarizing = false
     @State private var confirmDelete = false
@@ -96,7 +97,10 @@ struct MeetingDetailView: View {
 
     @ViewBuilder
     private var summary: some View {
-        if let md = meeting.summaryMd, !md.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        // Reading `revision` re-checks the disk once the model has landed.
+        if meeting.writtenSummary == nil, downloader.revision >= 0, ModelLocator.summaryNeedsModel {
+            MeetingSummaryModelNotice()
+        } else if let md = meeting.writtenSummary {
             GroupBox {
                 MeetingMarkdown(markdown: md, skippingSections: meeting.actionItems.isEmpty ? [] : ["action item"])
                     .frame(maxWidth: .infinity, alignment: .leading)

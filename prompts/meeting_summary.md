@@ -29,6 +29,8 @@ Write an action item as `- [ ] Owner: task (due)`, `- [ ] Owner: task`, `- [ ] t
 
 When the input is <transcript part="2 of 5">, it's one part of a longer meeting: summarize only that part, in the same structure. When the input is <partial_summaries>, merge them into one set of notes in the same structure: combine duplicates, keep every distinct decision and action item, and keep the Summary to 3 to 6 bullets for the whole meeting.
 
+The example below only shows the format. It is a different meeting: never copy its content, names or wording into your notes.
+
 <example>
 <meeting>
 Title: Kinju launch sync

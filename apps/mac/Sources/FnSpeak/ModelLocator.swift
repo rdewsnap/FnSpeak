@@ -79,6 +79,21 @@ enum ModelLocator {
         return name.contains("fnspeak") || name.contains("flowstate")
     }
 
+    /// The model meeting summaries are written with, when the cleanup model
+    /// is one trained only for cleanup: those tidy text but can't summarize.
+    /// The largest general-purpose GGUF in the folder, if there is one.
+    static var summaryModel: URL? {
+        guard let main = cleanupModel, isFineTune(main) else { return nil }
+        let size = { (url: URL) in (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 }
+        return cleanupModelCandidates.filter { !isFineTune($0) }.max { size($0) < size($1) }
+    }
+
+    /// Local mode with a cleanup-only model and nothing to summarize with.
+    static var summaryNeedsModel: Bool {
+        guard Preferences.shared.mode == "local", let main = cleanupModel else { return false }
+        return isFineTune(main) && summaryModel == nil
+    }
+
     /// UserDefaults key for the file name of the fast model, chosen in
     /// Settings → Advanced.
     static let fastModelKey = "fastCleanupModel"

@@ -101,8 +101,20 @@ final class ModelDownloader: NSObject, ObservableObject, URLSessionDownloadDeleg
         }
     }
 
-    func download(_ item: Item) {
-        guard tasks[item] == nil, state(item) != .unpacking, !item.isPresent else { return }
+    /// The general model is on disk, whichever model does the cleanup.
+    static var hasGeneralModel: Bool {
+        FileManager.default.fileExists(atPath: ModelLocator.modelsDirectory.appendingPathComponent(Item.cleanup.fileName).path)
+    }
+
+    /// Fetch the general model for meeting summaries. It's the same file as
+    /// the cleanup download, wanted here even though a cleanup model exists.
+    func downloadGeneralModel() {
+        guard !Self.hasGeneralModel else { return }
+        download(.cleanup, evenIfPresent: true)
+    }
+
+    func download(_ item: Item, evenIfPresent: Bool = false) {
+        guard tasks[item] == nil, state(item) != .unpacking, evenIfPresent || !item.isPresent else { return }
         let task = session.downloadTask(with: item.url)
         task.taskDescription = item.rawValue
         tasks[item] = task

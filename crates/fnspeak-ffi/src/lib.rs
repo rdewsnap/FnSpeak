@@ -106,7 +106,38 @@ pub struct LocalModel {
     /// as a second server; unset or the same as `model_path` means one model
     /// does everything.
     pub light_model_path: Option<String>,
+    /// A general-purpose GGUF for meeting summaries, when `model_path` is a
+    /// model trained only for cleanup, which can't write one. Started for
+    /// each summary and stopped after it.
+    pub summary_model_path: Option<String>,
+    /// `model_path` is a model trained only for cleanup: it tidies text but
+    /// can't write a summary.
+    pub cleanup_only: bool,
 }
+
+/// What writes meeting summaries.
+#[derive(Clone, Debug)]
+enum SummaryModel {
+    /// Whatever cleanup uses.
+    Cleanup,
+    /// Its own server, on this binary and model.
+    Separate(String, String),
+    /// Nothing on this Mac can: the cleanup model is cleanup-only and
+    /// there's no general one.
+    Missing,
+}
+
+impl LocalModel {
+    /// The server and model to summarize with, when it isn't the cleanup model.
+    fn summary(&self) -> Option<(String, String)> {
+        let model = self.summary_model_path.as_deref().filter(|m| !m.is_empty() && *m != self.model_path)?;
+        Some((self.server_binary.clone(), model.to_string()))
+    }
+}
+
+/// Room for a fair stretch of transcript at a time; the summary server only
+/// lives as long as the summary.
+const SUMMARY_CONTEXT_TOKENS: u32 = 8192;
 
 /// One past dictation. Text only; audio is never kept.
 #[derive(Clone, Debug, uniffi::Record)]
@@ -334,6 +365,9 @@ pub struct FnSpeakEngine {
     /// The dictation being recorded, if it's transcribed as it goes.
     dictation: Mutex<Option<DictationSession>>,
     listener: Arc<RwLock<Option<Arc<dyn MeetingListener>>>>,
+    /// In local mode, the server binary and the model summaries are written
+    /// with, when that isn't the cleanup model.
+    summary_model: Mutex<SummaryModel>,
 }
 
 #[uniffi::export]
@@ -377,6 +411,7 @@ impl FnSpeakEngine {
             data_dir: dir,
             dictation: Mutex::new(None),
             listener: Arc::new(RwLock::new(None)),
+            summary_model: Mutex::new(summary_model(mode, config.local.as_ref())),
         }))
     }
 
@@ -421,6 +456,7 @@ impl FnSpeakEngine {
 
     pub fn configure_cleanup(&self, mode: Mode, local: Option<LocalModel>, cloud: Option<CloudConfig>) -> Result<(), FnSpeakError> {
         let cleaner = build_cleaner(mode.into(), local.as_ref(), cloud.as_ref())?;
+        *self.summary_model.lock().unwrap_or_else(|e| e.into_inner()) = summary_model(mode.into(), local.as_ref());
         let mut p = self.pipeline.lock().unwrap_or_else(|e| e.into_inner());
         p.mode = mode.into();
         p.set_cleaner(cleaner);
@@ -1002,8 +1038,36 @@ impl FnSpeakEngine {
             let p = self.pipeline.lock().unwrap_or_else(|e| e.into_inner());
             (p.llm(), p.vocab.relevant_terms(&vocab_context(&meeting), &[], SUMMARY_VOCAB).unwrap_or_default())
         };
-        summary::summarize_meeting(&self.notes, llm.as_deref(), &vocabulary, id)
-            .map_err(|e| FnSpeakError::Meeting(format!("transcript saved, but the summary failed: {e}")))?;
+        // A cleanup-only model can't summarize; bring up the general one
+        // for as long as this takes. If it won't start, use what's loaded.
+        let summary_model = self.summary_model.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let mut summarizer = None;
+        let llm = match summary_model {
+            SummaryModel::Cleanup => llm,
+            SummaryModel::Separate(server, model) => {
+                let mut config = LocalConfig::new(&server, &model);
+                config.context_tokens = SUMMARY_CONTEXT_TOKENS;
+                match LocalCleaner::start(config) {
+                    Ok(cleaner) => summarizer.insert(cleaner).llm(),
+                    Err(e) => {
+                        log::warn!("summary model didn't start: {e}");
+                        return Err(FnSpeakError::Meeting(SUMMARY_FAILED.into()));
+                    }
+                }
+            }
+            // Better no summary than the cleanup model's guess at one.
+            SummaryModel::Missing => None,
+        };
+        let without_model = if summarizer.is_none() && llm.is_none() && matches!(*self.summary_model.lock().unwrap_or_else(|e| e.into_inner()), SummaryModel::Missing) {
+            summary::NEEDS_GENERAL_MODEL_SUMMARY
+        } else {
+            summary::NO_MODEL_SUMMARY
+        };
+        summary::summarize_meeting_or(&self.notes, llm.as_deref(), &vocabulary, id, without_model).map_err(|e| {
+            // The detail is for the log; the person gets what to do next.
+            log::warn!("meeting {id}: summary failed: {e}");
+            FnSpeakError::Meeting(SUMMARY_FAILED.into())
+        })?;
         self.meeting(id)?.ok_or_else(|| FnSpeakError::Meeting(format!("no meeting {id}")))
     }
 
@@ -1116,6 +1180,19 @@ fn build_stt(speech: &SpeechEngine) -> Result<Box<dyn SttEngine>, FnSpeakError> 
         )),
         #[allow(unreachable_patterns)]
         other => Err(FnSpeakError::Setup(format!("{other:?} isn't compiled into this build"))),
+    }
+}
+
+const SUMMARY_FAILED: &str = "the transcript is saved, but the summary couldn't be written. Try Summarize again.";
+
+fn summary_model(mode: CleanupMode, local: Option<&LocalModel>) -> SummaryModel {
+    match (mode, local) {
+        (CleanupMode::Local, Some(local)) => match local.summary() {
+            Some((server, model)) => SummaryModel::Separate(server, model),
+            None if local.cleanup_only => SummaryModel::Missing,
+            None => SummaryModel::Cleanup,
+        },
+        _ => SummaryModel::Cleanup,
     }
 }
 

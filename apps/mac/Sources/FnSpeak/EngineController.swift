@@ -348,7 +348,9 @@ final class EngineController: ObservableObject {
 
     private func localModel() -> LocalModel? {
         guard let server = ModelLocator.llamaServer, let model = ModelLocator.cleanupModel else { return nil }
-        return LocalModel(serverBinary: server.path, modelPath: model.path, lightModelPath: ModelLocator.fastCleanupModel?.path)
+        return LocalModel(serverBinary: server.path, modelPath: model.path, lightModelPath: ModelLocator.fastCleanupModel?.path,
+                          summaryModelPath: ModelLocator.summaryModel?.path,
+                          cleanupOnly: ModelLocator.isFineTune(model))
     }
 
     private func cloudConfig() -> CloudConfig? {

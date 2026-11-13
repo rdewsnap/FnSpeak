@@ -68,18 +68,43 @@ final class MeetingAudio: NSObject, MicLender {
             lastLevel = [:]
         }
 
+        // Echo cancellation sometimes fails to come up (Bluetooth headsets,
+        // another app holding the mic). Try it twice, then record without it
+        // so the meeting still starts.
+        var failure: Error?
+        for echoCancelling in [true, true, false] {
+            do {
+                try startEngine(echoCancelling: echoCancelling)
+                failure = nil
+                break
+            } catch {
+                failure = error
+                Log.error("Meeting: microphone didn't start\(echoCancelling ? " with echo cancellation" : "") (\(error.localizedDescription))")
+            }
+        }
+        if let failure { throw failure }
+        isRunning = true
+        startPadding()
+        AudioRecorder.lender = self
+    }
+
+    private func startEngine(echoCancelling: Bool) throws {
         AudioDevices.apply(selected: Preferences.shared.microphoneId, to: mic)
         let input = mic.inputNode
-        do {
-            try input.setVoiceProcessingEnabled(true)
-            // Voice processing ducks other audio by default; the call is that audio.
-            input.voiceProcessingOtherAudioDuckingConfiguration = .init(enableAdvancedDucking: false, duckingLevel: .min)
-        } catch {
-            Log.error("Meeting: echo cancellation unavailable (\(error.localizedDescription)); recording the mic as is")
+        if echoCancelling {
+            do {
+                try input.setVoiceProcessingEnabled(true)
+                // Voice processing ducks other audio by default; the call is that audio.
+                input.voiceProcessingOtherAudioDuckingConfiguration = .init(enableAdvancedDucking: false, duckingLevel: .min)
+            } catch {
+                Log.error("Meeting: echo cancellation unavailable (\(error.localizedDescription)); recording the mic as is")
+            }
+            // Voice processing runs input and output together, so the output has to be in the graph.
+            _ = mic.mainMixerNode
+            mic.mainMixerNode.outputVolume = 0
+        } else {
+            try? input.setVoiceProcessingEnabled(false)
         }
-        // Voice processing runs input and output together, so the output has to be in the graph.
-        _ = mic.mainMixerNode
-        mic.mainMixerNode.outputVolume = 0
 
         let format = input.outputFormat(forBus: 0)
         micResampler = Resampler(from: format)
@@ -92,12 +117,11 @@ final class MeetingAudio: NSObject, MicLender {
             try mic.start()
         } catch {
             input.removeTap(onBus: 0)
+            mic.stop()
+            mic.reset()
             try? input.setVoiceProcessingEnabled(false)
             throw error
         }
-        isRunning = true
-        startPadding()
-        AudioRecorder.lender = self
     }
 
     /// Starts capturing what the Mac plays. Needs Screen Recording permission.

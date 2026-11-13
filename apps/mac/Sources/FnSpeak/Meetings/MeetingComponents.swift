@@ -214,6 +214,49 @@ struct MeetingMarkdown: View {
 }
 
 /// A one-line warning with an optional action.
+/// Shown where a summary would be, when this Mac has only a cleanup-only
+/// model: what's missing, and a button that fetches it.
+struct MeetingSummaryModelNotice: View {
+    @ObservedObject private var downloader = ModelDownloader.shared
+
+    var body: some View {
+        let item = ModelDownloader.Item.cleanup
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Summaries need the general model. The one on this Mac only tidies dictation.")
+                .font(.callout).fixedSize(horizontal: false, vertical: true)
+            switch downloader.state(item) {
+            case .downloading(let fraction):
+                HStack(spacing: 8) {
+                    ProgressView(value: fraction ?? 0).frame(maxWidth: 140)
+                    Text(fraction.map { "\(Int($0 * 100))% of \(item.size)" } ?? "Starting…")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Button("Cancel") { downloader.cancel(item) }.controlSize(.small)
+                }
+            case .unpacking:
+                ProgressView().controlSize(.small)
+            case .failed(let message):
+                Text("Download failed. \(message)").font(.callout).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Try again") { downloader.downloadGeneralModel() }.controlSize(.small)
+            case .idle:
+                Button("Download (\(item.size))") { downloader.downloadGeneralModel() }.controlSize(.small)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.12)))
+    }
+}
+
+extension Meeting {
+    /// A summary a model wrote, not the line stored when there was no model to ask.
+    var writtenSummary: String? {
+        guard let md = summaryMd?.trimmingCharacters(in: .whitespacesAndNewlines), !md.isEmpty,
+              !md.hasPrefix("_Summaries need") else { return nil }
+        return md
+    }
+}
+
 struct MeetingBanner: View {
     let text: String
     var systemImage = "exclamationmark.triangle.fill"

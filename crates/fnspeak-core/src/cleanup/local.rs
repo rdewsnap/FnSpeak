@@ -70,6 +70,10 @@ impl LlamaServer {
             .arg(&config.model_path)
             .args(["--host", "127.0.0.1", "--port", &port.to_string()])
             .args(["--ctx-size", &config.context_tokens.to_string()])
+            // One slot. Left to itself the server makes four and shares the
+            // context between them, so a long summary beside a cached
+            // dictation prompt runs out of room.
+            .args(["--parallel", "1"])
             .args(["--n-gpu-layers", &config.gpu_layers.to_string()])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
