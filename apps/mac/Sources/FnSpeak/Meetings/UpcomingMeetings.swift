@@ -108,6 +108,8 @@ final class UpcomingMeetings: ObservableObject {
     static let shared = UpcomingMeetings()
 
     @Published private(set) var meetings: [UpcomingMeeting] = []
+    /// What's left of today: on now or still to come before midnight.
+    @Published private(set) var today: [UpcomingMeeting] = []
     @Published private(set) var hasCalendarAccess = MeetingCalendar.hasAccess
 
     private var timer: Timer?
@@ -139,14 +141,19 @@ final class UpcomingMeetings: ObservableObject {
             meetings = [UpcomingMeeting(id: "preview", title: "Weekly sync", start: Date().addingTimeInterval(8 * 60),
                                         end: Date().addingTimeInterval(38 * 60),
                                         joinURL: URL(string: "https://us02web.zoom.us/j/8123456789"))]
+            today = meetings
             return
         }
         let access = MeetingCalendar.hasAccess
         // Reading the calendar can take a moment with many accounts.
         DispatchQueue.global(qos: .utility).async {
             let found = access ? MeetingCalendar.upcoming() : []
+            let now = Date()
+            let midnight = Calendar.current.startOfDay(for: now).addingTimeInterval(24 * 3600)
+            let rest = access ? MeetingCalendar.upcoming(within: midnight.timeIntervalSince(now) / 3600, limit: 6, at: now) : []
             DispatchQueue.main.async {
                 if self.hasCalendarAccess != access { self.hasCalendarAccess = access }
+                if self.today != rest { self.today = rest }
                 if self.meetings != found { self.meetings = found }
             }
         }

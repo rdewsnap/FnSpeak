@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotkeys = HotkeyMonitor()
     private let overlay = Overlay()
     private var promptObserver: AnyCancellable?
+    private var agendaObserver: AnyCancellable?
     /// The calendar event a call was last noticed during.
     private var detectedCall: MeetingCalendar.Event?
     /// Meetings whose pill prompt was used or waved away.
@@ -90,14 +91,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         RunLoop.main.add(promptTimer, forMode: .common)
         overlay.actions = [
             .init(id: "dictate", symbol: "mic.fill", label: "Dictate",
-                  hint: "Start dictating. Press \(prefs.hotkey.displayName) to finish.") { [weak self] in self?.dictateFromPill() },
+                  hint: "Start dictating. Press \(prefs.hotkey.displayName) to finish.", key: prefs.hotkey.displayName) { [weak self] in self?.dictateFromPill() },
             .init(id: "note", symbol: "square.and.pencil", label: "Note",
                   hint: "Jot a note and start talking.") { [weak self] in self?.notes.newNote() },
             .init(id: "meeting", symbol: "record.circle", label: "Meeting",
                   hint: "Record and transcribe a meeting.") { [weak self] in self?.meetings.requestStart() },
-            .init(id: "open", symbol: "macwindow", label: "Open",
-                  hint: "Open FnSpeak.") { [weak self] in self?.showSettings(tab: .home) },
         ]
+        agendaObserver = UpcomingMeetings.shared.$today
+            .combineLatest(UpcomingMeetings.shared.$hasCalendarAccess)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateAgenda() }
         setUpActions()
         AccountController.shared.engine = engine
         SettingsRouter.shared.openSettingsWindow = { [weak self] in self?.showSettingsWindow() }
@@ -495,7 +498,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// What the pill offers: recording a call that was just noticed, or the
     /// meeting that's on or starts in the next ten minutes.
+    /// What's left of today's calendar, for the pill's meeting button.
+    private func updateAgenda() {
+        let now = Date()
+        let items = UpcomingMeetings.shared.today.map { meeting in
+            Overlay.AgendaItem(id: meeting.id, title: meeting.title, when: meeting.when(at: now), hasLink: meeting.joinURL != nil) { [weak self] in
+                self?.dismissedPrompts.insert(meeting.id)
+                if let url = meeting.joinURL { NSWorkspace.shared.open(url) }
+                self?.meetings.requestStart(title: meeting.title)
+                self?.updateMeetingPrompt()
+            }
+        }
+        overlay.setAgenda(items, calendarConnected: UpcomingMeetings.shared.hasCalendarAccess) {
+            UpcomingMeetings.shared.connectCalendar()
+        }
+    }
+
     private func updateMeetingPrompt() {
+        // "in 9 min" counts down here too.
+        updateAgenda()
         guard meetings.phase == .idle else { return overlay.setMeetingPrompt(nil) }
         if let call = detectedCall, call.end > Date(), !dismissedPrompts.contains(call.id) {
             let prompt = Overlay.MeetingPrompt(id: call.id, title: call.title, when: "", action: "Record", detected: true)

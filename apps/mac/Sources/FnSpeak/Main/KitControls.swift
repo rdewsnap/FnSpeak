@@ -575,3 +575,130 @@ struct KitPicker<Selection: Hashable, Content: View>: View {
         }
     }
 }
+
+// MARK: - Tooltip
+
+/// A hover label in the kit's own style, for icon-only controls. It shows
+/// after a beat, beside the control, and never takes a click.
+struct KitTip: ViewModifier {
+    enum Side { case above, below, left, right }
+    /// Which end of the control the label lines up with, so one near the
+    /// edge of its window doesn't run off it.
+    enum Anchor { case leading, center, trailing }
+
+    let text: String
+    var side: Side = .below
+    var anchor: Anchor = .center
+    /// On the pill, which is always black whatever the app's appearance.
+    var onDark = false
+    /// A shortcut, set in bold after the text.
+    var key: String?
+    /// How far the label stands off the control.
+    var gap: CGFloat = 6
+
+    /// Set by a group of controls that share one hover, so only one of
+    /// their labels is ever up. Nil means this control tracks its own.
+    var active: Bool?
+
+    @State private var hovering = false
+    @State private var shown = false
+    @State private var token = 0
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { if active == nil { hovering = $0 } }
+            .onChange(of: active ?? hovering, initial: true) { _, on in
+                token += 1
+                guard on else { shown = false; return }
+                let mine = token
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    if mine == token { shown = true }
+                }
+            }
+            // A point on the control's edge, with the label hung off its far
+            // side: the label starts a gap beyond the control whatever size
+            // either of them is.
+            .overlay(alignment: edge.outer) {
+                Color.clear.frame(width: 0, height: 0)
+                    .overlay(alignment: edge.inner) {
+                        if shown {
+                            label
+                                .padding(edge.pad, gap)
+                                .allowsHitTesting(false)
+                                .transition(.opacity)
+                        }
+                    }
+            }
+            .zIndex(shown ? 10 : 0)
+            .animation(.easeOut(duration: 0.1), value: shown)
+            .accessibilityHint(text)
+    }
+
+    /// Where the anchor sits on the control, which corner of the label
+    /// meets it, and which side of the label the gap goes on.
+    private var edge: (outer: Alignment, inner: Alignment, pad: Edge.Set) {
+        switch side {
+        case .above:
+            return (Alignment(horizontal: horizontal, vertical: .top), Alignment(horizontal: horizontal, vertical: .bottom), .bottom)
+        case .below:
+            return (Alignment(horizontal: horizontal, vertical: .bottom), Alignment(horizontal: horizontal, vertical: .top), .top)
+        case .left:
+            return (.leading, .trailing, .trailing)
+        case .right:
+            return (.trailing, .leading, .leading)
+        }
+    }
+
+    private var horizontal: HorizontalAlignment {
+        switch anchor {
+        case .leading: return .leading
+        case .center: return .center
+        case .trailing: return .trailing
+        }
+    }
+
+    /// On the pill it's a pill of its own: black, outlined, a size up.
+    private var label: some View {
+        let shape = onDark ? AnyInsettableShape(Capsule()) : AnyInsettableShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        let size: CGFloat = onDark ? 13 : 11
+        return HStack(spacing: 5) {
+            Text(text).font(.system(size: size, weight: .medium))
+            if let key { Text(key).font(.system(size: size, weight: .bold)) }
+        }
+        .foregroundStyle(onDark ? Color.white : Theme.page)
+        .lineLimit(1)
+        .fixedSize()
+        .padding(.horizontal, onDark ? 13 : 8)
+        .padding(.vertical, onDark ? 7 : 4)
+        .background(shape.fill(onDark ? Color.black : Theme.text))
+        .overlay(shape.strokeBorder(Color.white.opacity(onDark ? 0.9 : 0), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.18), radius: 4, x: 0, y: 1)
+    }
+}
+
+extension View {
+    /// A hover label in the kit's style. Use it where a native tooltip
+    /// wouldn't show (floating panels) or wouldn't match.
+    func kitTip(_ text: String, side: KitTip.Side = .below, anchor: KitTip.Anchor = .center, onDark: Bool = false, key: String? = nil, gap: CGFloat = 6, active: Bool? = nil) -> some View {
+        modifier(KitTip(text: text, side: side, anchor: anchor, onDark: onDark, key: key, gap: gap, active: active))
+    }
+}
+
+/// One insettable shape or another, chosen at run time.
+struct AnyInsettableShape: InsettableShape {
+    private let make: @Sendable (CGRect, CGFloat) -> Path
+
+    init<S: InsettableShape>(_ shape: S) {
+        make = { rect, inset in shape.inset(by: inset).path(in: rect) }
+    }
+
+    private var amount: CGFloat = 0
+
+    func path(in rect: CGRect) -> Path { make(rect, amount) }
+
+    func inset(by amount: CGFloat) -> AnyInsettableShape {
+        var copy = self
+        copy.amount += amount
+        return copy
+    }
+}
