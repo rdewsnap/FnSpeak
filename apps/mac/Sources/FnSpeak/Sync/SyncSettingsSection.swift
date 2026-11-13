@@ -4,6 +4,7 @@ import SwiftUI
 struct SyncSettingsSection: View {
     @ObservedObject var prefs = Preferences.shared
     @ObservedObject var sync = SyncEngine.shared
+    @ObservedObject private var account = AccountController.shared
 
     var body: some View {
         KitSection(title: "Sync") {
@@ -12,7 +13,17 @@ struct SyncSettingsSection: View {
             Text("Keeps notes and meeting transcripts the same on every Mac signed in to this account, and makes them searchable from AI assistants connected to the server. Notes and meetings stay private unless you share one with a team.")
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if prefs.syncEnabled {
+            if prefs.syncEnabled, let note = sync.planNote {
+                // Not on the plan: say so plainly, with the way to get it.
+                HStack {
+                    Label(note, systemImage: "lock").foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    if let action = account.plan?.actions?.first(where: { $0.id != "manage" }) {
+                        Button(action.title) { account.open(action) }
+                    }
+                }
+            } else if prefs.syncEnabled {
                 HStack {
                     TimelineView(.periodic(from: .now, by: 30)) { _ in status }
                     Spacer()

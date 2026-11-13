@@ -16,6 +16,9 @@ final class SyncEngine: ObservableObject {
 
     @Published private(set) var lastSynced: Date?
     @Published private(set) var lastError: String?
+    /// Sync isn't part of the account's plan: what the server said about
+    /// it. Not an error, so it's shown calmly and not logged as one.
+    @Published private(set) var planNote: String?
     @Published private(set) var syncing = false
     /// The id mapping and sharing, published for the share menus.
     @Published private(set) var state: SyncState?
@@ -101,6 +104,7 @@ final class SyncEngine: ObservableObject {
     private func signedOut() {
         lastSynced = nil
         lastError = nil
+        planNote = nil
         state = nil
         appliedGlossary = nil
         appliedSnippets = nil
@@ -194,8 +198,13 @@ final class SyncEngine: ObservableObject {
                 }
             }
             lastError = snippetError
+            planNote = nil
         } catch ServerError.signedOut {
             account.tokenRejected()
+        } catch ServerError.planRequired(let message) {
+            if planNote == nil { Log.info("Sync: not part of this account's plan") }
+            planNote = message
+            lastError = nil
         } catch {
             lastError = error.localizedDescription
             Log.error("Sync: \(error.localizedDescription)")

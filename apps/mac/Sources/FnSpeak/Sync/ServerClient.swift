@@ -255,6 +255,8 @@ enum ServerError: LocalizedError, Equatable {
     case network(URLError)
     case invalidURL
     case unexpectedResponse
+    /// The account's plan doesn't include this. The message says which does.
+    case planRequired(message: String)
     /// Anything else the server said no to, with its message.
     case rejected(status: Int, message: String)
 
@@ -278,7 +280,7 @@ enum ServerError: LocalizedError, Equatable {
             return "That server address isn't a valid URL."
         case .unexpectedResponse:
             return "The server sent something FnSpeak didn't understand. Is this a FnSpeak server?"
-        case .rejected(_, let message):
+        case .planRequired(let message), .rejected(_, let message):
             return message.prefix(1).uppercased() + message.dropFirst()
         }
     }
@@ -297,6 +299,8 @@ enum ServerError: LocalizedError, Equatable {
         switch status {
         case 401: return .signedOut
         case 429: return .rateLimited
+        case 402 where body?.code == "plan_required":
+            return .planRequired(message: body?.message ?? "Your plan doesn't include this.")
         default:
             return .rejected(status: status, message: body?.message ?? "The server answered with HTTP \(status).")
         }
