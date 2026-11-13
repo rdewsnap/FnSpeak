@@ -12,6 +12,11 @@ struct MeetingDetailView: View {
     @State private var copied: String?
     @State private var problem: String?
     @State private var title = ""
+    /// The meeting's pad, as it's being edited here.
+    @State private var notes = ""
+    /// What the pad said when the summary on screen was written.
+    @State private var summarizedNotes = ""
+    @State private var notesSave: DispatchWorkItem?
     @State private var editingParticipants = false
     @State private var participantsText = ""
     @FocusState private var titleFocused: Bool
@@ -37,6 +42,8 @@ struct MeetingDetailView: View {
         }
         .task(id: meeting.id) {
             title = meeting.title
+            notes = meeting.notesMd ?? ""
+            summarizedNotes = notes
             loadSegmentsIfNeeded()
         }
         .confirmationDialog("Delete “\(meeting.title)”?", isPresented: $confirmDelete) {
@@ -151,18 +158,43 @@ struct MeetingDetailView: View {
         }
     }
 
-    /// What was typed on the meeting's pad.
-    @ViewBuilder
+    /// The meeting's pad. It can be added to after the meeting, and the
+    /// summary rewritten to take the changes in.
     private var myNotes: some View {
-        if let notes = meeting.notesMd?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty {
-            GroupBox {
-                Text(notes)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(6)
-            } label: {
-                Label("My notes", systemImage: "pencil.line")
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                ZStack(alignment: .topLeading) {
+                    TextEditor(text: $notes)
+                        .font(.body)
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 70)
+                    if notes.isEmpty {
+                        Text("Add what you want remembered from this meeting. It's used when the summary is written.")
+                            .foregroundStyle(.tertiary)
+                            // Where the editor puts its first character.
+                            .padding(.leading, 5)
+                            .allowsHitTesting(false)
+                    }
+                }
+                if notes.trimmingCharacters(in: .whitespacesAndNewlines) != summarizedNotes.trimmingCharacters(in: .whitespacesAndNewlines) {
+                    HStack(spacing: 8) {
+                        Button("Update summary", action: resummarize).disabled(resummarizing)
+                        Text("Rewrites the summary with your notes.").font(.callout).foregroundStyle(.secondary)
+                    }
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(6)
+        } label: {
+            Label("My notes", systemImage: "pencil.line")
+        }
+        .onChange(of: notes) { _, text in
+            guard text != (meeting.notesMd ?? "") else { return }
+            notesSave?.cancel()
+            let id = meeting.id
+            let save = DispatchWorkItem { controller.saveNotes(id, text) }
+            notesSave = save
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: save)
         }
     }
 
@@ -232,11 +264,19 @@ struct MeetingDetailView: View {
     private func resummarize() {
         resummarizing = true
         problem = nil
-        controller.resummarize(meeting.id) { result in
-            resummarizing = false
-            switch result {
-            case .success(let updated): meeting = updated
-            case .failure(let error): problem = MeetingController.message(for: error)
+        // The pad has to be saved before the summary reads it.
+        notesSave?.cancel()
+        let used = notes
+        controller.saveNotes(meeting.id, used) {
+            controller.resummarize(meeting.id) { result in
+                resummarizing = false
+                switch result {
+                case .success(let updated):
+                    meeting = updated
+                    summarizedNotes = used
+                case .failure(let error):
+                    problem = MeetingController.message(for: error)
+                }
             }
         }
     }

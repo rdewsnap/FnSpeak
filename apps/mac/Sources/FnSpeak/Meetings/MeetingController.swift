@@ -339,6 +339,23 @@ final class MeetingController: NSObject, ObservableObject {
         }
     }
 
+    /// Save a stored meeting's pad, edited after the fact. Calls back once
+    /// it's written, so a summary asked for next reads the new text.
+    func saveNotes(_ id: Int64, _ text: String, completion: (() -> Void)? = nil) {
+        guard let core = engine.core else { completion?(); return }
+        // The dock may be showing the same meeting; keep its pad in step.
+        if id == padMeetingId, pad != text {
+            padSave?.cancel()
+            padMeetingId = nil
+            pad = text
+            padMeetingId = id
+        }
+        queue.async {
+            try? core.setMeetingNotes(id: id, notes: text)
+            DispatchQueue.main.async { completion?() }
+        }
+    }
+
     /// Save the pad a moment after the typing stops.
     private func padChanged() {
         padSave?.cancel()
