@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Render apps/mac/Support/Icon/fnspeak-icon.svg into AppIcon.icns, keeping
-# the background transparent. Needs only what ships with macOS and Xcode.
+# the background transparent. The 16 and 32 px slots come from
+# fnspeak-icon-small.svg, which drops the quotes for a plain, larger fn.
+# Needs only what ships with macOS and Xcode.
 #
 #   scripts/make-icon.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SVG="$ROOT/apps/mac/Support/Icon/fnspeak-icon.svg"
+SMALL_SVG="$ROOT/apps/mac/Support/Icon/fnspeak-icon-small.svg"
 OUT="$ROOT/apps/mac/Support/AppIcon.icns"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -35,8 +38,10 @@ for spec in args.dropFirst(3) {
 }
 SWIFT
 
+swift "$WORK/render.swift" "$SMALL_SVG" "$SET" \
+    16:icon_16x16 32:icon_16x16@2x 32:icon_32x32
 swift "$WORK/render.swift" "$SVG" "$SET" \
-    16:icon_16x16 32:icon_16x16@2x 32:icon_32x32 64:icon_32x32@2x \
+    64:icon_32x32@2x \
     128:icon_128x128 256:icon_128x128@2x 256:icon_256x256 512:icon_256x256@2x \
     512:icon_512x512 1024:icon_512x512@2x
 iconutil -c icns "$SET" -o "$OUT"
