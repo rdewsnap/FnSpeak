@@ -78,6 +78,9 @@ final class Preferences: ObservableObject {
 
     /// A `HotkeyPreset` raw value.
     @Published var hotkeyPreset: String { didSet { defaults.set(hotkeyPreset, forKey: "hotkeyPreset") } }
+    /// With Fn as the hotkey, hold the system's own Fn action (the emoji
+    /// picker) off while FnSpeak runs. See `FnKeySetting`.
+    @Published var keepFnKey: Bool { didSet { defaults.set(keepFnKey, forKey: "keepFnKey") } }
     @Published var customHotkeyKeyCode: Int { didSet { defaults.set(customHotkeyKeyCode, forKey: "customHotkeyKeyCode") } }
     @Published var customHotkeyModifiers: Int { didSet { defaults.set(customHotkeyModifiers, forKey: "customHotkeyModifiers") } }
     /// `hold`, `toggle` or `both` (hold, or double-tap for hands-free).
@@ -122,6 +125,7 @@ final class Preferences: ObservableObject {
         overlaySize = defaults.string(forKey: "overlaySize") ?? "medium"
         showPillWhenIdle = defaults.object(forKey: "showPillWhenIdle") as? Bool ?? true
         hotkeyPreset = defaults.string(forKey: "hotkeyPreset") ?? HotkeyPreset.fn.rawValue
+        keepFnKey = defaults.object(forKey: "keepFnKey") as? Bool ?? true
         customHotkeyKeyCode = defaults.object(forKey: "customHotkeyKeyCode") as? Int ?? 49
         customHotkeyModifiers = defaults.object(forKey: "customHotkeyModifiers") as? Int
             ?? Int(NSEvent.ModifierFlags([.control, .option]).rawValue)

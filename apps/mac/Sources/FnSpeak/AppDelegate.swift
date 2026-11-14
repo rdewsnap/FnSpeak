@@ -55,7 +55,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Preferences.shared.applyAppearance()
         setUpStatusItem()
         applyPresentation()
-        prefsObserver = prefs.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] in self?.applyPresentation() }
+        prefsObserver = prefs.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] in
+            self?.applyPresentation()
+            FnKeySetting.sync()
+        }
+        FnKeySetting.sync()
         // Any real window (settings, notes, a meeting) puts the app in the Dock
         // while it's open, so there's something to click on and ⌘Q to press.
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.willCloseNotification, NSWindow.didMiniaturizeNotification] {
@@ -449,6 +453,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        FnKeySetting.release()
         engine.shutdown()
     }
 

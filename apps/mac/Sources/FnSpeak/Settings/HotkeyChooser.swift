@@ -4,7 +4,7 @@ import SwiftUI
 /// list, the recorder for a custom key, and how a press behaves.
 struct HotkeyChooser: View {
     @ObservedObject var prefs = Preferences.shared
-    @State private var fnDoesSomethingElse = FnKeySetting.doesSomethingElse
+    private var fnDoesSomethingElse: Bool { FnKeySetting.doesSomethingElse }
 
     var body: some View {
         KitPicker("Dictate with", selection: $prefs.hotkeyPreset, width: 230) {
@@ -15,20 +15,21 @@ struct HotkeyChooser: View {
                 HotkeyRecorder(hotkey: prefs.customHotkey) { prefs.customHotkey = $0 }
             }
         }
-        if prefs.hotkeyPreset == HotkeyPreset.fn.rawValue, fnDoesSomethingElse {
-            // macOS acts on a tap of Fn by itself (the emoji picker, by
-            // default), which then takes the dictated text. Only the user
-            // can turn that off.
-            VStack(alignment: .leading, spacing: 6) {
-                Label("macOS also uses a tap of Fn, usually to open the emoji picker. It gets in the way of double-tapping and can swallow what you dictate.", systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("In Keyboard settings, set \"Press 🌐 key to\" to Do Nothing.")
+        if prefs.hotkeyPreset == HotkeyPreset.fn.rawValue {
+            Toggle("Keep Fn for dictation", isOn: $prefs.keepFnKey)
+            if prefs.keepFnKey {
+                Text("While FnSpeak is running, a tap of Fn won't open the emoji picker or switch keyboards. Quit FnSpeak and Fn goes back to what it did.")
                     .font(.callout).foregroundStyle(.secondary)
-                Button("Open Keyboard Settings") { FnKeySetting.openSettings() }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                fnDoesSomethingElse = FnKeySetting.doesSomethingElse
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if fnDoesSomethingElse {
+                // macOS acts on a tap of Fn by itself, and the picker it
+                // opens then takes the dictated text.
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("macOS also uses a tap of Fn, usually to open the emoji picker. It gets in the way of double-tapping and can swallow what you dictate.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Open Keyboard Settings") { FnKeySetting.openSettings() }
+                }
             }
         }
 
@@ -50,19 +51,3 @@ struct HotkeyChooser: View {
     }
 }
 
-/// What macOS does when Fn (the Globe key) is tapped by itself, from
-/// System Settings → Keyboard → "Press 🌐 key to".
-enum FnKeySetting {
-    /// True unless it's set to Do Nothing. Unset means the system default,
-    /// which is the emoji picker or switching input source.
-    static var doesSomethingElse: Bool {
-        let value = UserDefaults(suiteName: "com.apple.HIToolbox")?.object(forKey: "AppleFnUsageType") as? Int
-        return value != 0
-    }
-
-    static func openSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-}

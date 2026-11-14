@@ -25,6 +25,8 @@ final class AudioRecorder {
     private var configObserver: NSObjectProtocol?
     private var startedAt = Date()
     private var heardAudio = false
+    /// Loudest level since the recording began, for the log.
+    private var peak: Float = 0
 
     init() {
         // A Bluetooth microphone changes the input format as it wakes up
@@ -76,6 +78,7 @@ final class AudioRecorder {
 
         startedAt = Date()
         heardAudio = false
+        peak = 0
         try openInput()
         isRecording = true
         Log.debug("Microphone opened in \(Int(Date().timeIntervalSince(startedAt) * 1000)) ms")
@@ -120,6 +123,7 @@ final class AudioRecorder {
     @discardableResult
     func stop() -> [Float] {
         guard isRecording else { return [] }
+        Log.debug("Recording ended after \(Int(Date().timeIntervalSince(startedAt) * 1000)) ms, loudest level \(String(format: "%.2f", peak))")
         if borrowing {
             Self.lender?.endLoan()
             borrowing = false
@@ -178,6 +182,7 @@ final class AudioRecorder {
 
         let rms = sqrt(chunk.reduce(0) { $0 + $1 * $1 } / Float(max(chunk.count, 1)))
         let level = min(1, rms * 12)
+        peak = max(peak, level)
         DispatchQueue.main.async { self.onLevel?(level) }
     }
 }

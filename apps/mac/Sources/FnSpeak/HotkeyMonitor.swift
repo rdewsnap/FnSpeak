@@ -138,6 +138,7 @@ final class HotkeyMonitor {
 
     private func tapped(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            Log.error("Hotkey tap was switched off by macOS (\(type == .tapDisabledByTimeout ? "too slow" : "by input")); switching it back on")
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return Unmanaged.passUnretained(event)
         }
@@ -163,10 +164,6 @@ final class HotkeyMonitor {
         if hotkey.isModifierOnly {
             if event.keyCode == hotkey.keyCode {
                 setTrigger(hotkey.isDown(in: event.modifierFlags), at: event.timestamp)
-                // macOS acts on a tap of Fn by itself (the emoji picker, by
-                // default). Keep the press to ourselves so it never sees one;
-                // with FnSpeak closed or paused the key does what it always did.
-                if hotkey.keyCode == Hotkey.fn.keyCode && !prefs.paused { return true }
             }
         } else if triggerDown {
             // Let go of the modifiers before the key: that ends the press too.
