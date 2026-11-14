@@ -94,14 +94,35 @@ final class AccountController: ObservableObject {
 
     // MARK: - Signing in
 
+    /// Where this Mac keeps its half of an emailed sign-in in progress. The
+    /// server is told only its hash, so the link in the email signs nobody
+    /// in without it, and it has to outlive a relaunch of the app.
+    private static let linkVerifierAccount = "signin-link-verifier"
+
     func requestLink(email: String) {
         let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
         guard email.contains("@") else { return error = "Enter your email address." }
+        var bytes = [UInt8](repeating: 0, count: 32)
+        let random = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess
+        let verifier = random ? "fsv_" + bytes.map { String(format: "%02x", $0) }.joined() : nil
+        let challenge = verifier.map { SHA256.hash(data: Data($0.utf8)).map { String(format: "%02x", $0) }.joined() }
         run { client in
-            try await client.requestSignInLink(email: email)
+            try await client.requestSignInLink(email: email, challenge: challenge)
+            if let verifier {
+                Keychain.write(verifier, account: Self.linkVerifierAccount)
+            } else {
+                Keychain.delete(account: Self.linkVerifierAccount)
+            }
             self.phase = .waitingForLink(email: email)
-            self.notice = "Check your email for a sign-in link from FnSpeak."
+            self.notice = "Check your email and click the link. It signs you in here."
         }
+    }
+
+    /// The emailed link was clicked and the browser handed its token back
+    /// to the app.
+    func completeSignIn(linkToken: String) {
+        guard !isSignedIn else { return }
+        completeSignIn(pasted: linkToken)
     }
 
     /// Finish signing in with what the user pasted: the link from the
@@ -120,7 +141,16 @@ final class AccountController: ObservableObject {
             return error = "Paste the whole sign-in link from the email."
         }
         run { client in
-            let verified = try await client.verify(linkToken: linkToken, deviceName: Self.deviceName)
+            let verifier = Keychain.read(account: Self.linkVerifierAccount)
+            let verified: ServerClient.Verified
+            do {
+                verified = try await client.verify(linkToken: linkToken, deviceName: Self.deviceName, verifier: verifier)
+            } catch ServerError.rejected where verifier != nil {
+                // A link that wasn't asked for from here (the website's, or
+                // an older one) isn't tied to this Mac. A refusal uses
+                // nothing up, so it can be tried plain.
+                verified = try await client.verify(linkToken: linkToken, deviceName: Self.deviceName)
+            }
             var signedIn = client
             signedIn.token = verified.token
             let me = try await signedIn.me()
@@ -185,12 +215,14 @@ final class AccountController: ObservableObject {
 
     func cancelSignIn() {
         googleVerifier = nil
+        Keychain.delete(account: Self.linkVerifierAccount)
         phase = .signedOut
         notice = nil
         error = nil
     }
 
     private func didSignIn(token: String, tokenId: String?, me: ServerClient.Me) {
+        Keychain.delete(account: Self.linkVerifierAccount)
         Keychain.write(token, account: Preferences.accountKeychainAccount)
         prefs.accountEmail = me.user.email
         prefs.accountUserId = me.user.id

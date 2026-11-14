@@ -134,6 +134,29 @@ pub struct LinkRequest {
     /// page is used so the link can never point somewhere unexpected.
     #[serde(default)]
     return_to: Option<String>,
+    /// From the app: the SHA-256 (hex) of a secret it made up and keeps.
+    /// The link then opens the app, and only that copy of the app can finish
+    /// the sign-in, by presenting the secret itself.
+    #[serde(default)]
+    challenge: Option<String>,
+}
+
+/// What a link's token is filed under. A link asked for by the app is tied
+/// to the app's challenge, so the token alone signs nobody in.
+fn link_hash(secret: &str, token: &str, challenge: Option<&str>) -> String {
+    match challenge {
+        Some(challenge) => hash_token(secret, &format!("{token}:app:{challenge}")),
+        None => hash_token(secret, token),
+    }
+}
+
+fn valid_challenge(raw: &str) -> ApiResult<String> {
+    let challenge = raw.trim().to_lowercase();
+    if challenge.len() == 64 && challenge.bytes().all(|b| b.is_ascii_hexdigit()) {
+        Ok(challenge)
+    } else {
+        Err(ApiError::bad("challenge must be a SHA-256 in hex"))
+    }
 }
 
 /// Where the emailed link points, without the `?token=` part.
@@ -167,16 +190,22 @@ pub async fn request_link(
     {
         return Err(ApiError::TooManyRequests);
     }
+    let challenge = req.challenge.as_deref().map(valid_challenge).transpose()?;
     let token = random_token("fsl_");
     let now = now_ms();
     state
         .db
         .execute(
             "INSERT INTO login_tokens (token_hash, email, created_at, expires_at) VALUES ($1, $2, $3, $4)",
-            args![hash_token(&state.config.secret, &token), &email, now, now + LINK_TTL_MS],
+            args![link_hash(&state.config.secret, &token, challenge.as_deref()), &email, now, now + LINK_TTL_MS],
         )
         .await?;
-    let link = format!("{}?token={token}", link_target(&state.config, req.return_to.as_deref())?);
+    // The app's link always goes through this server's page, which hands it
+    // to the app; `app=1` tells the page so.
+    let link = match challenge {
+        Some(_) => format!("{}/v1/auth/verify?token={token}&app=1", state.config.base_url),
+        None => format!("{}?token={token}", link_target(&state.config, req.return_to.as_deref())?),
+    };
     state
         .mailer
         .send(Mail {
@@ -211,6 +240,9 @@ pub struct VerifyRequest {
     token: String,
     /// Label for the API token this creates, e.g. the device name.
     name: Option<String>,
+    /// The secret behind the challenge a link was asked for with.
+    #[serde(default)]
+    verifier: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -234,7 +266,8 @@ pub async fn verify(
     let hash = if token.starts_with(crate::google::VERIFIER_PREFIX) {
         crate::google::claim_hash(&state.config.secret, token)
     } else {
-        hash_token(&state.config.secret, token)
+        let challenge = req.verifier.as_deref().map(|v| hex::encode(Sha256::digest(v.trim().as_bytes())));
+        link_hash(&state.config.secret, token, challenge.as_deref())
     };
     let now = now_ms();
     let row = state

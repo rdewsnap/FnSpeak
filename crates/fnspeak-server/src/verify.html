@@ -95,6 +95,14 @@
       <p class="soft small rule">Didn't ask for this? Close the tab. The link works once and expires after 15 minutes. You can also skip this page and paste the link straight into FnSpeak under Settings → Account.</p>
     </div>
 
+    <!-- App: the link was asked for from the app, which finishes the sign-in itself. -->
+    <div id="app" hidden>
+      <h1>Opening FnSpeak</h1>
+      <p class="soft">Your browser may ask whether to open FnSpeak. Say yes and you're signed in.</p>
+      <button class="btn" id="open-app" type="button">Open FnSpeak</button>
+      <p class="soft small rule">Nothing happening? This link only works on the Mac where you asked for it, with FnSpeak installed. You can also copy the link from the email and paste it into FnSpeak under Settings → Account.</p>
+    </div>
+
     <!-- Done: the token was exchanged and the API token is shown once. -->
     <div id="done" hidden>
       <h1>You're signed in</h1>
@@ -121,8 +129,20 @@
 
 <script>
   const $ = (id) => document.getElementById(id);
-  const show = (id) => { for (const s of ["ready", "done", "problem"]) $(s).hidden = s !== id; };
-  const token = (new URLSearchParams(location.search).get("token") || "").trim();
+  const show = (id) => { for (const s of ["ready", "app", "done", "problem"]) $(s).hidden = s !== id; };
+  const params = new URLSearchParams(location.search);
+  const token = (params.get("token") || "").trim();
+  // A link asked for from the app goes back to the app, which is the only
+  // thing that can finish it. Nothing is used up here, so a mail scanner
+  // loading this page changes nothing.
+  const forApp = params.get("app") === "1" && /^fsl_[0-9a-f]+$/.test(token);
+  function openApp() { location.href = "fnspeak://signin?token=" + token; }
+  if (forApp) {
+    show("app");
+    history.replaceState(null, "", location.pathname); // keep the token out of the address bar
+    $("open-app").addEventListener("click", openApp);
+    openApp();
+  }
 
   function problem(title, msg) {
     $("problem-title").textContent = title;

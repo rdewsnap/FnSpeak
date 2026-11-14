@@ -116,3 +116,54 @@ async fn magic_link_rejects_a_return_url_with_a_query() {
     let (status, _) = app.call("POST", "/v1/auth/magic-link", None, Some(body)).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+/// SHA-256 of `verifier`, in hex, as the app sends it.
+fn challenge_for(verifier: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(verifier.as_bytes()))
+}
+
+#[tokio::test]
+async fn app_link_opens_the_app_and_needs_its_verifier() {
+    let app = TestApp::new().await;
+    let verifier = "fsv_0123456789abcdef0123456789abcdef";
+    let body = json!({ "email": "di@example.com", "challenge": challenge_for(verifier) });
+    let (status, _) = app.call("POST", "/v1/auth/magic-link", None, Some(body)).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let link = last_link_for(&app, "di@example.com");
+    assert!(link.starts_with("http://localhost:8080/v1/auth/verify?token=fsl_"), "{link}");
+    assert!(link.ends_with("&app=1"), "{link}");
+    let token = app.last_token_for("di@example.com", "token=");
+
+    // The token by itself, as a browser or another app would have it.
+    let (status, _) = app.call("POST", "/v1/auth/verify", None, Some(json!({ "token": token }))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let wrong = json!({ "token": token, "verifier": "fsv_ffffffffffffffffffffffffffffffff" });
+    let (status, _) = app.call("POST", "/v1/auth/verify", None, Some(wrong)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // Neither failure used the link up.
+    let right = json!({ "token": token, "verifier": verifier, "name": "FnSpeak on a Mac" });
+    let (status, body) = app.call("POST", "/v1/auth/verify", None, Some(right.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["user"]["email"], "di@example.com");
+    let (status, _) = app.call("POST", "/v1/auth/verify", None, Some(right)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn app_link_rejects_a_malformed_challenge() {
+    let app = TestApp::new().await;
+    let body = json!({ "email": "di@example.com", "challenge": "not-a-hash" });
+    let (status, _) = app.call("POST", "/v1/auth/magic-link", None, Some(body)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn a_plain_link_still_works_when_a_verifier_is_not_sent() {
+    let app = TestApp::new().await;
+    app.call("POST", "/v1/auth/magic-link", None, Some(json!({ "email": "ed@example.com" }))).await;
+    let token = app.last_token_for("ed@example.com", "token=");
+    let (status, _) = app.call("POST", "/v1/auth/verify", None, Some(json!({ "token": token }))).await;
+    assert_eq!(status, StatusCode::OK);
+}

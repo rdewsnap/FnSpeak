@@ -184,7 +184,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // The browser saying a sign-in is ready to collect. It carries
             // nothing, so it isn't one of the commands other apps can send.
             if url.scheme == "fnspeak", url.host == "signin" {
-                AccountController.shared.finishGoogleSignIn()
+                // The emailed link, handed over by the browser, brings its
+                // token; it is worth nothing without the secret kept here.
+                let token = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first { $0.name == "token" }?.value
+                if let token, token.hasPrefix("fsl_") {
+                    AccountController.shared.completeSignIn(linkToken: token)
+                    showSettings(tab: .account)
+                } else {
+                    AccountController.shared.finishGoogleSignIn()
+                }
                 continue
             }
             whenEngineReady { URLCommands.handle(url) }

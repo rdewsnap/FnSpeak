@@ -29,13 +29,22 @@ struct ServerClient {
 
     // MARK: - Sign-in
 
-    func requestSignInLink(email: String) async throws {
-        let _: Status = try await send("POST", "auth/magic-link", body: ["email": email], authorized: false)
+    /// Ask for a sign-in link. With a `challenge` (the SHA-256 of a secret
+    /// this Mac keeps) the link opens the app and only this Mac can finish
+    /// it. Servers from before that ignore the field and send a plain link.
+    func requestSignInLink(email: String, challenge: String? = nil) async throws {
+        var body = ["email": email]
+        if let challenge { body["challenge"] = challenge }
+        let _: Status = try await send("POST", "auth/magic-link", body: body, authorized: false)
     }
 
-    /// Swap the token from a sign-in link for an API token named after this Mac.
-    func verify(linkToken: String, deviceName: String) async throws -> Verified {
-        try await send("POST", "auth/verify", body: ["token": linkToken, "name": deviceName], authorized: false)
+    /// Swap the token from a sign-in link for an API token named after this
+    /// Mac. `verifier` is the secret behind the challenge the link was asked
+    /// for with, if it was.
+    func verify(linkToken: String, deviceName: String, verifier: String? = nil) async throws -> Verified {
+        var body = ["token": linkToken, "name": deviceName]
+        if let verifier { body["verifier"] = verifier }
+        return try await send("POST", "auth/verify", body: body, authorized: false)
     }
 
     /// Ways to sign in besides an emailed link. Older servers don't have

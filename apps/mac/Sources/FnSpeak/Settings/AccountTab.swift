@@ -99,7 +99,7 @@ struct AccountTab: View {
         KitSection(title: "Sign in") {
             switch account.phase {
             case .waitingForLink(let address):
-                Text("We sent a link to **\(address)**. Copy the link from the email and paste it here; there's no need to open it. If you already opened it and pressed **Sign in**, paste the token the page shows instead.")
+                Text("We sent a link to **\(address)**. Click it on this Mac and you're signed in here. If the email is on another device, copy the link and paste it below.")
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
