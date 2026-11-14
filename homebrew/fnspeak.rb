@@ -2,8 +2,8 @@
 # After each release, set `version` and `sha256` to the dmg's
 # sha256 from the release job summary (or the SHA256SUMS release asset).
 cask "fnspeak" do
-  version "0.2.0"
-  sha256 "e07b4056c7366a0366bc9853b780291339baf691afa1b9a77638aef467f9f52d"
+  version "1.0.0"
+  sha256 "b72d0b8357ffb788b25020d0e99cf3f46cecd225fc5442c5a67e08be42f44c64"
 
   url "https://github.com/rdewsnap/FnSpeak/releases/download/v#{version}/FnSpeak-#{version}.dmg"
   name "FnSpeak"
