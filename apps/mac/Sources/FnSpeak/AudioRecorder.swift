@@ -22,6 +22,22 @@ final class AudioRecorder {
     /// Set while a meeting has the mic open; dictation then reads from its tap.
     static var lender: MicLender?
     private var borrowing = false
+    private var configObserver: NSObjectProtocol?
+    private var startedAt = Date()
+    private var heardAudio = false
+
+    init() {
+        // A Bluetooth microphone changes the input format as it wakes up
+        // (AirPods drop to their call mode), and the engine stops itself when
+        // that happens. Pick the recording back up instead of going deaf.
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in self?.inputChanged() }
+    }
+
+    deinit {
+        if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+    }
 
     static func requestPermission(_ completion: @escaping (Bool) -> Void) {
         AVCaptureDevice.requestAccess(for: .audio) { granted in
@@ -58,16 +74,46 @@ final class AudioRecorder {
         }
         AudioDevices.apply(selected: microphone, to: engine)
 
+        startedAt = Date()
+        heardAudio = false
+        try openInput()
+        isRecording = true
+        Log.debug("Microphone opened in \(Int(Date().timeIntervalSince(startedAt) * 1000)) ms")
+    }
+
+    private struct NoInput: LocalizedError {
+        var errorDescription: String? { "The microphone isn't giving any audio" }
+    }
+
+    /// Tap the input node and start the engine, in whatever format the
+    /// microphone has right now.
+    private func openInput() throws {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
-        converter = AVAudioConverter(from: format, to: target)
+        // A device that's still switching reports no format; tapping it throws.
+        guard format.sampleRate > 0, format.channelCount > 0 else { throw NoInput() }
+        converter = nil
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buffer, _ in
             self?.append(buffer)
         }
         engine.prepare()
         try engine.start()
-        isRecording = true
+    }
+
+    private func inputChanged() {
+        guard isRecording, !borrowing else { return }
+        Log.info("Microphone changed format mid-recording, reopening it")
+        engine.stop()
+        do {
+            try openInput()
+        } catch {
+            // The device may need a moment more; one retry covers AirPods.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self, self.isRecording, !self.borrowing, !self.engine.isRunning else { return }
+                do { try self.openInput() } catch { Log.error("Couldn't reopen the microphone: \(error.localizedDescription)") }
+            }
+        }
     }
 
     /// Stop and return everything recorded since `start()`.
@@ -98,7 +144,16 @@ final class AudioRecorder {
     }
 
     private func append(_ buffer: AVAudioPCMBuffer) {
+        // Built from the audio that actually arrives, so a format that
+        // changed under the tap still converts.
+        if converter == nil || converter?.inputFormat != buffer.format {
+            converter = AVAudioConverter(from: buffer.format, to: target)
+        }
         guard let converter else { return }
+        if !heardAudio {
+            heardAudio = true
+            Log.debug("First audio \(Int(Date().timeIntervalSince(startedAt) * 1000)) ms after opening the microphone")
+        }
         let ratio = target.sampleRate / buffer.format.sampleRate
         let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 32
         guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
