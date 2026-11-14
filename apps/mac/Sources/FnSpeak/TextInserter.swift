@@ -11,6 +11,47 @@ enum TextInserter {
         case paste, ax, type
     }
 
+    /// What has keyboard focus, as far as dictated text is concerned.
+    enum Target {
+        /// A text field: insert.
+        case field
+        /// Something that plainly isn't one (a button, a list, a picture).
+        case nothing
+        /// Can't tell. Plenty of apps say little through Accessibility, so
+        /// this is treated as a field.
+        case unknown
+    }
+
+    private static let textRoles: Set<String> = ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"]
+    /// Roles an app reports when it isn't describing its contents at all
+    /// (Electron and browsers until asked), or that may hold an editor.
+    private static let vagueRoles: Set<String> = ["AXWindow", "AXApplication", "AXGroup", "AXUnknown", "AXWebArea", "AXScrollArea", "AXSplitGroup", "AXLayoutArea"]
+
+    /// Whether there is somewhere for the text to go. Errs towards `.unknown`:
+    /// only an element that is clearly not editable counts as `.nothing`.
+    static func target() -> Target {
+        guard AXIsProcessTrusted() else { return .unknown }
+        var raw: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute as CFString, &raw)
+        guard result == .success, let raw, CFGetTypeID(raw) == AXUIElementGetTypeID() else { return .unknown }
+        // swiftlint:disable:next force_cast
+        let element = raw as! AXUIElement
+        var roleRaw: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRaw)
+        guard let role = roleRaw as? String else { return .unknown }
+        if textRoles.contains(role) || role == "AXSecureTextField" { return .field }
+        for attribute in [kAXSelectedTextAttribute, kAXValueAttribute] {
+            var settable: DarwinBoolean = false
+            if AXUIElementIsAttributeSettable(element, attribute as CFString, &settable) == .success, settable.boolValue {
+                var value: CFTypeRef?
+                AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+                // A slider's value is settable too; only text counts.
+                if value == nil || value is String { return .field }
+            }
+        }
+        return vagueRoles.contains(role) ? .unknown : .nothing
+    }
+
     static func insert(_ text: String, bundleId: String?) {
         guard !text.isEmpty else { return }
         let override = bundleId.flatMap { Preferences.shared.insertionOverrides[$0] }.flatMap(Method.init(rawValue:))

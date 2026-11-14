@@ -125,8 +125,24 @@ enum DevTools {
             (.bottom, "bottom", "meeting", []), (.top, "top", "dictate", nil),
             (.leading, "left", "dictate", nil), (.trailing, "right", "meeting", sample),
         ]
+        func copyBar() {
+            let view = CopyBar.previewView(text: "Can you ask Priya to review the pgvector migration and book it for Tuesday? I'll send the notes over once the benchmarks finish running.")
+            let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = view
+            window.orderFront(nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                if let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                    view.cacheDisplay(in: view.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?
+                        .write(to: directory.appendingPathComponent("copy-bar.png"))
+                }
+                window.close()
+                done()
+            }
+        }
         func shoot(_ index: Int) {
-            guard index < shots.count else { return done() }
+            guard index < shots.count else { return copyBar() }
             let (alignment, name, hovering, agenda) = shots[index]
             let view = Overlay.previewView(alignment: alignment, hovering: hovering, agenda: agenda)
             let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)

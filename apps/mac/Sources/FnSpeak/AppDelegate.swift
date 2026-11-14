@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let recorder = AudioRecorder()
     private let hotkeys = HotkeyMonitor()
     private let overlay = Overlay()
+    private let copyBar = CopyBar()
     private var promptObserver: AnyCancellable?
     private var agendaObserver: AnyCancellable?
     /// The calendar event a call was last noticed during.
@@ -212,6 +213,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Dictation
 
     private func startRecording() -> Bool {
+        // A new dictation replaces the one waiting to be copied.
+        copyBar.hide()
         // Whatever the user did to the last dictation, they're done with it.
         editWatcher.finish()
         guard !prefs.paused else {
@@ -313,6 +316,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return self.overlay.show(.hidden)
                 }
                 if self.notes.insertDictation(dictation.insert) { return self.overlay.show(.pasted) }
+                // Nowhere to put it: keep the text on screen to copy, rather
+                // than pasting into nothing and calling it done.
+                if TextInserter.target() == .nothing {
+                    Log.info("Nothing to paste into; showing the copy bar")
+                    RecentDictations.shared.add(dictation.text)
+                    self.copyBar.show(dictation.insert.trimmingCharacters(in: .whitespacesAndNewlines))
+                    return self.overlay.show(.hidden)
+                }
                 TextInserter.insert(dictation.insert, bundleId: context.appId)
                 if send { TextInserter.pressReturn() }
                 self.lastInsert = (dictation.insert, context.appId)
