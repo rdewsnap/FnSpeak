@@ -43,7 +43,10 @@ final class HotkeyMonitor {
     private var triggerDown = false
     /// A recording started by this monitor is running.
     private var active = false
-    private var pressedAt = Date.distantPast
+    /// When the key went down, on the event's own clock (seconds since boot).
+    /// Events can sit in the queue while the microphone starts, so the time
+    /// they are handled says nothing about how long the key was held.
+    private var pressedAt: TimeInterval = 0
     private var handsFree = false
     /// The running recording was started from the pill, not by this monitor.
     private var startedElsewhere = false
@@ -158,11 +161,17 @@ final class HotkeyMonitor {
     private func handleFlags(_ event: NSEvent) -> Bool {
         let hotkey = prefs.hotkey
         if hotkey.isModifierOnly {
-            if event.keyCode == hotkey.keyCode { setTrigger(hotkey.isDown(in: event.modifierFlags)) }
+            if event.keyCode == hotkey.keyCode {
+                setTrigger(hotkey.isDown(in: event.modifierFlags), at: event.timestamp)
+                // macOS acts on a tap of Fn by itself (the emoji picker, by
+                // default). Keep the press to ourselves so it never sees one;
+                // with FnSpeak closed or paused the key does what it always did.
+                if hotkey.keyCode == Hotkey.fn.keyCode && !prefs.paused { return true }
+            }
         } else if triggerDown {
             // Let go of the modifiers before the key: that ends the press too.
             let held = event.modifierFlags.intersection(Hotkey.relevant)
-            if !held.isSuperset(of: hotkey.modifiers) { setTrigger(false) }
+            if !held.isSuperset(of: hotkey.modifiers) { setTrigger(false, at: event.timestamp) }
         }
         return false
     }
@@ -185,14 +194,14 @@ final class HotkeyMonitor {
         }
         guard event.keyCode == hotkey.keyCode, mods == hotkey.modifiers else { return false }
         comboKeyDown = true
-        if !event.isARepeat { setTrigger(true) }
+        if !event.isARepeat { setTrigger(true, at: event.timestamp) }
         return true
     }
 
     private func handleKeyUp(_ event: NSEvent) -> Bool {
         let hotkey = prefs.hotkey
         guard !hotkey.isModifierOnly, event.keyCode == hotkey.keyCode else { return false }
-        setTrigger(false)
+        setTrigger(false, at: event.timestamp)
         let consume = comboKeyDown
         comboKeyDown = false
         return consume
@@ -200,13 +209,13 @@ final class HotkeyMonitor {
 
     // MARK: - Trigger
 
-    private func setTrigger(_ down: Bool) {
+    private func setTrigger(_ down: Bool, at time: TimeInterval) {
         guard down != triggerDown else { return }
         triggerDown = down
-        down ? pressed() : released()
+        down ? pressed(at: time) : released(at: time)
     }
 
-    private func pressed() {
+    private func pressed(at time: TimeInterval) {
         usedAsModifier = false
         ignoreUntilRelease = false
         if startedElsewhere {
@@ -218,7 +227,7 @@ final class HotkeyMonitor {
         case .toggle:
             active ? finish() : begin()
         case .hold:
-            pressedAt = Date()
+            pressedAt = time
             begin()
         case .both:
             if handsFree {
@@ -228,15 +237,16 @@ final class HotkeyMonitor {
                 awaitingSecondTap = false
                 tapTimer?.invalidate()
                 handsFree = true
+                Log.debug("Hotkey: double-tap, hands-free")
                 onHandsFree?()
             } else {
-                pressedAt = Date()
+                pressedAt = time
                 begin()
             }
         }
     }
 
-    private func released() {
+    private func released(at time: TimeInterval) {
         if ignoreUntilRelease {
             ignoreUntilRelease = false
             return
@@ -251,7 +261,7 @@ final class HotkeyMonitor {
             if handsFree { return }
             if usedAsModifier {
                 cancel()
-            } else if Date().timeIntervalSince(pressedAt) >= tapMax {
+            } else if time - pressedAt >= tapMax {
                 finish()
             } else {
                 // A quick tap: wait to see whether it's the first half of a double-tap.
